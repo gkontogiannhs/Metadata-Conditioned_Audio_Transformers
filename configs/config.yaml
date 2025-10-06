@@ -35,7 +35,7 @@ audio:
   
   resz: 1.0 # spectrogram resize factor (1.0 = no resize)
   # Augmentation
-  raw_augment: 0
+  raw_augment: 1
   wave_aug:
     - type: Crop
       sampling_rate: 16000
@@ -89,7 +89,7 @@ models:
     imagenet_pretrained: false
     label_dim: 4
     backbone_only: false
-    cpt_path: /Users/gkont/Documents/Code/ADD-RSC/ls/pretrained_models/audioset_10_10_0.4593.pth
+    cpt_path: /Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth
 
 training:
   loss: weighted_ce
