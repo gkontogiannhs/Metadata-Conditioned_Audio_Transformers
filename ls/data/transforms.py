@@ -5,15 +5,18 @@ from torchvision import transforms as T
 from ls.config.dataclasses import DatasetConfig, AudioConfig
 
 
-def build_transforms(dataset_cfg: DatasetConfig, audio_cfg: AudioConfig, train: bool = True):
+def build_transforms(
+    dataset_cfg: DatasetConfig, audio_cfg: AudioConfig, 
+    train: bool = True
+) -> T.Compose:
     """
     Build transform pipeline for log-mel features.
     Args:
         cfg: config object with dataset/audio settings
         train: whether for training (can include more transforms)
     """
-    h, w = cfg.dataset.h, cfg.dataset.w  # store in cfg after dataset init
-    resz = getattr(cfg.audio, "resz", 1.0)
+    h, w = dataset_cfg.h, dataset_cfg.w  # store in cfg after dataset init
+    resz = getattr(audio_cfg, "resz", 1.0)
     print(f"[Transforms] Input spectrogram resize factor: {resz}, target size: ({int(h*resz)}, {int(w*resz)})")
     tfms = []
 
