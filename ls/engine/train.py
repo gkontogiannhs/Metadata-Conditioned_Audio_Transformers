@@ -226,8 +226,9 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
                 scheduler.step(val_metric)
             else:
                 scheduler.step()
-
+            
             lr = optimizer.param_groups[0]["lr"]
+            print(f"Learning rate: {lr}")
             mlflow.log_metric("lr", lr, step=epoch)
 
         if cfg.scheduler.cosine_weight_decay:

@@ -66,7 +66,7 @@ def main_kfold():
         mean_icbhi = float(np.mean(fold_icbhi_scores))
         std_icbhi = float(np.std(fold_icbhi_scores))
         mlflow.log_metrics({"icbhi_mean": mean_icbhi, "icbhi_std": std_icbhi})
-        print(f"\n K-Fold Mean ICBHI Score: {mean_icbhi:.2f} ± {std_icbhi:.2f}")
+        print(f"\ K-Fold Mean ICBHI Score: {mean_icbhi:.2f} ± {std_icbhi:.2f}")
 
         mlflow.end_run()
 

@@ -58,8 +58,10 @@ def compute_classification_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_pro
     # ---- ICBHI metric ----
     cm = confusion_matrix(y_true, y_pred, labels=list(range(n_classes)))
     hits = cm.diagonal().tolist()
+    print(cm)
+    
     counts = cm.sum(axis=1).tolist()
-    sp, se, sc = get_icbhi_scores(hits, counts, pflag=True)
+    sp, se, sc = get_icbhi_scores(hits, counts, pflag=False)
     metrics["specificity"] = sp
     metrics["sensitivity"] = se
     metrics["icbhi_score"] = sc

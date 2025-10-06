@@ -4,16 +4,16 @@ import torch
 from ls.metrics import compute_classification_metrics
 
 
-def evaluate(model, loader, criterion, device):
+def evaluate(model, data_loader, criterion, device):
     """
     Evaluate model on a given loader and return loss + metrics.
     """
     model.eval()
     total_loss, n_samples = 0.0, 0
     all_preds, all_labels, all_probs = [], [], []
-    iters = 0
+
     with torch.no_grad():
-        for batch in loader:
+        for batch in data_loader:
             x, y = batch["input_values"].to(device), batch["labels"].to(device)
             logits = model(x)
             loss = criterion(logits, y) if criterion else 0.0
@@ -28,9 +28,6 @@ def evaluate(model, loader, criterion, device):
             total_loss += loss.item() * x.size(0)
             n_samples += x.size(0)
             
-            if iters == 2:
-                break
-            iters += 1
     avg_loss = total_loss / n_samples
     n_classes = logits.shape[1]
 

@@ -15,8 +15,8 @@ def build_scheduler(cfg: SchedulerConfig, epochs: int, optimizer: optim.Optimize
     if cfg.type == "cosine":
         return CosineAnnealingLR(
             optimizer,
-            T_max=epochs,
-            eta_min=cfg.min_lr,
+            T_max=int(epochs),
+            eta_min=float(cfg.min_lr),
         )
 
     # --- Warmup + Cosine decay ---
@@ -34,7 +34,7 @@ def build_scheduler(cfg: SchedulerConfig, epochs: int, optimizer: optim.Optimize
         cosine = CosineAnnealingLR(
             optimizer,
             T_max=cosine_epochs,
-            eta_min=cfg.min_lr,
+            eta_min=float(cfg.min_lr),
         )
 
         return SequentialLR(
@@ -50,7 +50,7 @@ def build_scheduler(cfg: SchedulerConfig, epochs: int, optimizer: optim.Optimize
             mode=cfg.reduce_mode,
             factor=cfg.reduce_factor,
             patience=cfg.reduce_patience,
-            min_lr=cfg.reduce_min_lr,
+            min_lr=float(cfg.reduce_min_lr),
         )
 
     else:
