@@ -8,7 +8,7 @@ dataset:
   test_fold: 0
   n_cls: 4
   weighted_sampler: true
-  batch_size: 32
+  batch_size: 8
   num_workers: 0
   h: 128
   w: 1024
