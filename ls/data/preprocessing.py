@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-import torch.transforms as T
+from torchvision import transforms as T
 from ls.config.dataclasses import AudioConfig
 
 
