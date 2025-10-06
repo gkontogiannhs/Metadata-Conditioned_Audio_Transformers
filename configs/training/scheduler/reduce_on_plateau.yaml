@@ -1,0 +1,6 @@
+use: reduce_on_plateau
+reduce_factor: 0.5
+reduce_patience: 5
+reduce_min_lr: 1e-8
+reduce_metric: icbhi_score
+reduce_mode: max

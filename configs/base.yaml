@@ -1,0 +1,10 @@
+# Root configuration file that composes the experiment setup
+seed: 42
+
+dataset: configs/dataset/icbhi.yaml
+audio: configs/audio/default.yaml
+models:
+  cnn6: configs/models/cnn6.yaml
+  ast: configs/models/ast.yaml
+training: configs/training/base.yaml
+mlflow: configs/mlflow.yaml
