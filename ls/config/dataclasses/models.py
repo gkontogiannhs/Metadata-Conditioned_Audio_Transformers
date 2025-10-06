@@ -22,11 +22,11 @@ class ASTConfig:
     imagenet_pretrain: bool = False
     label_dim: int = 4
     backbone_only: bool = False
-    cpt_path: Optional[str] = None
+    audioset_ckpt_path: Optional[str] = None
 
 
 @dataclass
 class ModelsConfig:
     """Container for multiple model configs."""
-    model1: CNN6Config = field(default_factory=CNN6Config)
-    model2: ASTConfig = field(default_factory=ASTConfig)
+    cnn: CNN6Config = field(default_factory=CNN6Config)
+    ast: ASTConfig = field(default_factory=ASTConfig)
