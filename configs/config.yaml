@@ -11,7 +11,7 @@ dataset:
   batch_size: 32
   num_workers: 0
   h: 128
-  w: 256
+  w: 1024
 
 audio:
   # audio basics
@@ -75,41 +75,51 @@ audio:
 
 models:
   cnn6:
-    name: cnn6
+    # name: cnn6
     do_dropout: true
+    label_dim: 4
+    backbone_only: false
+    cpt_path: /Users/gkont/Documents/Code/pretrained_models/Cnn6_mAP=0.343.pth
 
   ast:
-    name: ast
-    audioset_pretrained: true
+    # name: ast
+    audioset_pretrain: true
     input_fdim: 128
     input_tdim: 1024
     model_size: base384
     fstride: 10
     tstride: 10
-    imagenet_pretrained: false
+    imagenet_pretrain: true
     label_dim: 4
     backbone_only: false
-    cpt_path: /Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth
+    audioset_ckpt_path: /Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth
 
 training:
   loss: weighted_ce
   use_class_weights: True
   epochs: 100
-  lr: 3e-5
-  weight_decay: 0.05
-  optimizer: adamw
+
+  optimizer:
+    type: adamw
+    lr: 3e-5
+    weight_decay: 0.05
+    momentum:
+    betas:
 
   scheduler:
-    use: cosine        # options: none, cosine, cosine_warmup, reduce_on_plateau
+    type: cosine        # options: none, cosine, cosine_warmup, reduce_on_plateau
     warmup_epochs: 10         # used only for warmup
+    start_linear_warmup: 1e-3
+    end_linear_warmup: 1.0
     min_lr: 1e-8
     cosine_weight_decay: True
     final_weight_decay: 0.0
-    # reduce_factor: 0.5        # used for ReduceLROnPlateau
-    # reduce_patience: 5
-    # reduce_min_lr: 1e-8
-    # reduce_metric: "icbhi_score"  # metric to monitor
-    # reduce_mode: "max"        # or "min", depending on metric (e.g., loss=min)
+
+    reduce_factor: 0.5        # used for ReduceLROnPlateau
+    reduce_patience: 5
+    reduce_min_lr: 1e-8
+    reduce_metric: "icbhi_score"  # metric to monitor
+    reduce_mode: "max"        # or "min", depending on metric (e.g., loss=min)
 
 
 mlflow:
