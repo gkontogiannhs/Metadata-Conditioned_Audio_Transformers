@@ -8,8 +8,8 @@ class SchedulerConfig:
     min_lr: float = 1e-8
     cosine_weight_decay: bool = True
     final_weight_decay: float = 0.0
-    reduce_factor: Optional[float] = None
-    reduce_patience: Optional[int] = None
-    reduce_min_lr: Optional[float] = None
-    reduce_metric: Optional[str] = None
-    reduce_mode: Optional[str] = None
+    reduce_factor: Optional[float] = 0.5
+    reduce_patience: Optional[int] = 5
+    reduce_min_lr: Optional[float] = 1e-8
+    reduce_metric: Optional[str] = "icbhi_score"
+    reduce_mode: Optional[str] = "max"

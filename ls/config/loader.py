@@ -9,6 +9,7 @@ from ls.config.dataclasses import (
 from ls.config.dataclasses.audio import AugmentationConfig
 from ls.config.dataclasses.schedulers import SchedulerConfig
 from ls.config.dataclasses.models import CNN6Config, ASTConfig
+from ls.config.dataclasses.optimizer import OptimizerConfig
 
 
 def load_config(path: str = "configs/config.yaml") -> Box:
@@ -27,7 +28,7 @@ def load_yaml(path: str):
 
 def load_config(path: str = "configs/base.yaml") -> Config:
     raw = load_yaml(path)
-
+    print(raw)
     # Dataset
     dataset_cfg = DatasetConfig(**raw["dataset"])
 
@@ -49,19 +50,25 @@ def load_config(path: str = "configs/base.yaml") -> Config:
                             wave_aug=wave_aug, spec_aug=spec_aug)
 
     # Models
-    cnn6_cfg = CNN6Config(**raw["model1"])
-    ast_cfg = ASTConfig(**raw["model2"])
-    models_cfg = ModelsConfig(model1=cnn6_cfg, model2=ast_cfg)
+    cnn6_cfg = CNN6Config(**raw["cnn6"])
+    ast_cfg = ASTConfig(**raw["ast"])
+    models_cfg = ModelsConfig(cnn6=cnn6_cfg, ast=ast_cfg)
 
-    # Training
-    scheduler_cfg = SchedulerConfig(**raw["training"]["scheduler"])
-    training_cfg = TrainingConfig(**{k: v for k, v in raw["training"].items() if k != "scheduler"},
-                                  scheduler=scheduler_cfg)
+    # ---- Training ----
+    training_raw = load_yaml(raw["training"])
+    optimizer_cfg = OptimizerConfig(**load_yaml(training_raw["optimizer"]))
+    scheduler_cfg = SchedulerConfig(**load_yaml(training_raw["scheduler"]))
+    training_cfg = TrainingConfig(
+        loss=training_raw["loss"],
+        use_class_weights=training_raw["use_class_weights"],
+        epochs=training_raw["epochs"],
+        optimizer=optimizer_cfg,
+        scheduler=scheduler_cfg,
+    )
 
-    # MLflow
-    mlflow_cfg = MLflowConfig(**raw["mlflow"])
+    # ---- MLflow ----
+    mlflow_cfg = MLflowConfig(**load_yaml(raw["mlflow"]))
 
-    # Root
     return Config(
         seed=raw.get("seed", 42),
         dataset=dataset_cfg,
