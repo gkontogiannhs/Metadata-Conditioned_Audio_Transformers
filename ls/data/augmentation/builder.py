@@ -26,7 +26,7 @@ def build_augmentations(audio_cfg: AudioConfig):
     """
     waveform_augs = getattr(audio_cfg, "wave_aug", [])
     spec_augs = getattr(audio_cfg, "spec_aug", [])
-    print(f"[Augmentations] Waveform augs: {waveform_augs}, Spec augs: {spec_augs}")
+    # print(f"[Augmentations] Waveform augs: {waveform_augs}, Spec augs: {spec_augs}")
 
     if not waveform_augs and not spec_augs:
         return [], []
