@@ -31,7 +31,7 @@ class ConvBlock5x5(nn.Module):
             stride=stride,
             padding=(2, 2),
             bias=False
-        )
+        ) # x: (batch, channels, freq, time)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.init_weights()
 
@@ -41,6 +41,8 @@ class ConvBlock5x5(nn.Module):
 
     def forward(self, x, pool_size=(2, 2), pool_type='avg'):
         """Forward pass with configurable pooling."""
+
+        # x: (batch_size, channels, freq, time) or (batch, freq, time)
         x = F.relu_(self.bn1(self.conv1(x)))
 
         if pool_type == 'max':
@@ -72,11 +74,13 @@ class CNN6(nn.Module):
     do_dropout : bool
         Whether to apply dropout between convolutional blocks.
     """
-    def __init__(self, in_channels: int = 1, num_classes: int = None, do_dropout: bool = False):
+    def __init__(self, in_channels: int = 1, num_classes: int = None, do_dropout: bool = False, cpt_path: str = None):
         super().__init__()
         self.final_feat_dim = 512
         self.do_dropout = do_dropout
-        self.is_backbone = num_classes is None  # True → feature extractor mode
+        self.is_backbone = num_classes is None  # True -> feature extractor mode
+        self.num_classes = num_classes
+        self.cpt_path = cpt_path
 
         # Convolutional backbone
         self.conv_block1 = ConvBlock5x5(in_channels, 64)
@@ -93,12 +97,13 @@ class CNN6(nn.Module):
         else:
             self.classifier = None
 
-    def load_sl_official_weights(self, path: str = 'pretrained_models/Cnn6_mAP=0.343.pth'):
+    def load_sl_official_weights(self):
         """
         Load pretrained CNN6 weights (AudioSet version).
         Available at: https://zenodo.org/record/3960586
         """
-        checkpoint = torch.load(path, map_location='cpu')
+        device = "mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu"
+        checkpoint = torch.load(self.cpt_path, map_location=device)
         weights = checkpoint.get('model', checkpoint)
         state_dict = {k: v for k, v in weights.items() if k in self.state_dict()}
         missing, unexpected = self.load_state_dict(state_dict, strict=False)
