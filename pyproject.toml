@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ls"
+version = "0.0.1"
+description = "Respiratory Lung Sounds Classification"
+readme = "README.md"
+authors = [
+    { name = "George Kontogiannis", email = "george.k.kontogiannis@gmail.com" }
+]
+license = "MIT"
+requires-python = ">=3.9"
+
+
+dependencies = [
+    "numpy",
+    "pandas",
+
+    # --- Other dependencies ---
+    "scikit-learn==1.5.2",
+    "librosa",
+    "PyYAML",
+    "matplotlib",
+    "seaborn",
+    "mlflow",
+    "python-box",
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "nlpaug",
+    "timm==0.4.5",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
