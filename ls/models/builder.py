@@ -1,6 +1,5 @@
 import torch.nn as nn
-from ls.models.ast import ASTModel
-from ls.models.cnn import CNN6
+
 # from ls.models.resnet import ResNet18, ResNet34, ResNet50
 # from ls.models.ssast import SSASTModel
 from ls.config.dataclasses import ModelsConfig
@@ -24,10 +23,18 @@ def build_model(cfg: ModelsConfig, model_key: str = "cnn6") -> nn.Module:
     if model_cfg is None:
         raise ValueError(f"Model key '{model_key}' not found in ModelsConfig")
 
-    # name = model_cfg.name.lower()
+    # ---------- SimpleRespCNN ----------
+    if model_key == "simplerespcnn":
+        from ls.models.baseline import SimpleRespCNN
+
+        return SimpleRespCNN(
+            n_classes=model_cfg.label_dim if hasattr(model_cfg, "label_dim") else 4
+        )
 
     # ---------- CNN6 ----------
     if model_key == "cnn6":
+        from ls.models.cnn import CNN6
+
         return CNN6(
             in_channels=1,
             num_classes=model_cfg.label_dim if hasattr(model_cfg, "label_dim") else 4,
@@ -37,6 +44,8 @@ def build_model(cfg: ModelsConfig, model_key: str = "cnn6") -> nn.Module:
 
     # ---------- AST ----------
     elif model_key == "ast":
+        from ls.models.ast import ASTModel
+
         return ASTModel(
             label_dim=getattr(model_cfg, "label_dim", 4),
             fstride=getattr(model_cfg, "fstride", 10),

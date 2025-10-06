@@ -26,16 +26,16 @@ audio:
   n_mels: 128
   frame_length: 40
   frame_shift: 10
-  low_freq: 0
+  low_freq: 100
   high_freq: 8000
   window_type: hanning
   use_energy: false
   dither: 0.0
-  mel_norm: hf # hf, mit, None
+  mel_norm: mit # hf, mit, None
   
   resz: 1.0 # spectrogram resize factor (1.0 = no resize)
   # Augmentation
-  raw_augment: 1
+  raw_augment: 0
   wave_aug:
     - type: Crop
       sampling_rate: 16000
@@ -74,6 +74,10 @@ audio:
       p: .3
 
 models:
+  simplerespcnn:
+    # name: simplerespcnn
+    label_dim: 4
+
   cnn6:
     # name: cnn6
     do_dropout: true
@@ -95,9 +99,12 @@ models:
     audioset_ckpt_path: /Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth
 
 training:
-  loss: weighted_ce
-  use_class_weights: True
-  epochs: 100
+  loss: cross_entropy
+  use_class_weights: false
+  epochs: 50
+  kfold_splits: 5
+  early_stopping: 15
+  grad_clip: 1.0
 
   optimizer:
     type: adamw
