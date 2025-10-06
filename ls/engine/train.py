@@ -257,4 +257,4 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
             mlflow.log_metric(f"{prefix}_{k}", v)
         print(f"[{prefix}] Final | Loss={test_loss:.4f} | ICBHI={test_metrics['icbhi_score']:.2f}")
 
-    return model
+    return model, criterion

@@ -35,7 +35,7 @@ def main_single():
         # Log configuration parameters
         log_all_params(cfg)
 
-        train_loop(cfg.training, model, train_loader, test_loader=test_loader)
+        _, _ = train_loop(cfg.training, model, train_loader, test_loader=test_loader)
         mlflow.end_run()
 
 
