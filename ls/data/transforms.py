@@ -2,10 +2,10 @@ import torch
 import torchaudio
 from torchvision import transforms as T
 
-from ls.config.dataclasses import Config, AudioConfig
+from ls.config.dataclasses import DatasetConfig, AudioConfig
 
 
-def build_transforms(cfg: Config, train: bool = True):
+def build_transforms(dataset_cfg: DatasetConfig, audio_cfg: AudioConfig, train: bool = True):
     """
     Build transform pipeline for log-mel features.
     Args:
