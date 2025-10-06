@@ -73,22 +73,23 @@ audio:
       mask: mean
       p: .3
 
-model1:
-  name: cnn6
-  do_dropout: true
+models:
+  cnn6:
+    name: cnn6
+    do_dropout: true
 
-model2:
-  name: ast
-  audioset_pretrained: true
-  input_fdim: 128
-  input_tdim: 1024
-  model_size: base384
-  fstride: 10
-  tstride: 10
-  imagenet_pretrained: false
-  label_dim: 4
-  backbone_only: false
-  cpt_path: /Users/gkont/Documents/Code/ADD-RSC/ls/pretrained_models/audioset_10_10_0.4593.pth
+  ast:
+    name: ast
+    audioset_pretrained: true
+    input_fdim: 128
+    input_tdim: 1024
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    imagenet_pretrained: false
+    label_dim: 4
+    backbone_only: false
+    cpt_path: /Users/gkont/Documents/Code/ADD-RSC/ls/pretrained_models/audioset_10_10_0.4593.pth
 
 training:
   loss: weighted_ce
@@ -112,7 +113,7 @@ training:
 
 
 mlflow:
-  tracking_uri: ""
-  tracking_username: ""
-  tracking_password: "
-  experiment_name: ""
+  tracking_uri:
+  tracking_username:
+  tracking_password:
+  experiment_name:
