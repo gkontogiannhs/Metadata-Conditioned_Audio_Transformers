@@ -47,14 +47,29 @@ def get_or_create_experiment(experiment_name: str) -> str:
 
 def flatten_dict(d, parent_key='', sep='.'):
     """
-    Recursively flatten nested dictionaries for MLflow logging.
-    Example: {"a": {"b": 1}} -> {"a.b": 1}
+    Recursively flatten nested dictionaries and lists for MLflow logging.
+    Example:
+      {"a": {"b": 1}, "list": [{"x": 1}, {"y": 2}]}
+      -> {"a.b": 1, "list.0.x": 1, "list.1.y": 2}
     """
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
+
+        # Case 1: nested dict
         if isinstance(v, dict):
             items.extend(flatten_dict(v, new_key, sep=sep).items())
+
+        # Case 2: list of dicts (e.g., augmentations)
+        elif isinstance(v, list) and all(isinstance(i, dict) for i in v):
+            for i, sub_v in enumerate(v):
+                sub_key = f"{new_key}{sep}{i}"
+                items.extend(flatten_dict(sub_v, sub_key, sep=sep).items())
+
+        # Case 3: list of primitive types (numbers, strings)
+        elif isinstance(v, list):
+            items.append((new_key, str(v)))
+
         else:
             items.append((new_key, v))
     return dict(items)
