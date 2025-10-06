@@ -5,6 +5,9 @@ import torch.nn as nn
 import os
 from timm.models.layers import to_2tuple,trunc_normal_
 import timm
+from ls.engine.utils import get_device
+
+DEVICE = get_device()
 
 # override the timm package to relax the input shape constraint.
 class PatchEmbed(nn.Module):
@@ -128,11 +131,11 @@ class ASTModel(nn.Module):
                 raise ValueError('currently model pretrained on only audioset is not supported, please set imagenet_pretrain = True to use audioset pretrained model.')
             if model_size != 'base384':
                 raise ValueError('currently only has base384 AudioSet pretrained model.')
-            device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+            # device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
             if not os.path.exists(audioset_ckpt_path):
                 raise FileNotFoundError(f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'. Please download it manually.")
             print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
-            sd = torch.load(audioset_ckpt_path, map_location=device)
+            sd = torch.load(audioset_ckpt_path, map_location=DEVICE)
             audio_model = ASTModel(label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=False, audioset_pretrain=False, model_size='base384', verbose=False)
             audio_model = torch.nn.DataParallel(audio_model)
             audio_model.load_state_dict(sd, strict=False)
@@ -186,15 +189,15 @@ class ASTModel(nn.Module):
         x = (x[:, 0] + x[:, 1]) / 2
         return x
 
-    @torch.amp.autocast("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+    @torch.amp.autocast(DEVICE.type)
     def forward(self, x):
         """
         :param x: the input spectrogram, expected shape: (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128)
         :return: prediction or features if backbone_only
         """
-        # expect input x = (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128)
-        x = x.unsqueeze(1) # add channel dimension, (12, 1, 1024, 128)
-        x = x.transpose(2, 3) # (12, 1, 128, 1024)
+        # expect input x = (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128) -> CHANGED TO (B, 1, F, T)
+        # x = x.unsqueeze(1) # add channel dimension, (12, 1, 1024, 128)
+        # x = x.transpose(2, 3) # (12, 1, 128, 1024)
 
         x = self.forward_features(x)
 
