@@ -2,12 +2,12 @@ seed: 42
 
 dataset:
   name: icbhi
-  data_folder: /Users/gkont/Downloads/Datasets/icbhi_dataset
+  data_folder: /home/AIoT04/Datasets/icbhi_dataset
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
   n_cls: 4
-  weighted_sampler: true
+  weighted_sampler: false
   batch_size: 8
   num_workers: 0
   h: 128
@@ -35,7 +35,7 @@ audio:
   
   resz: 1.0 # spectrogram resize factor (1.0 = no resize)
   # Augmentation
-  raw_augment: 0
+  raw_augment: 1
   wave_aug:
     - type: Crop
       sampling_rate: 16000
@@ -83,7 +83,7 @@ models:
     do_dropout: true
     label_dim: 4
     backbone_only: false
-    cpt_path: /Users/gkont/Documents/Code/pretrained_models/Cnn6_mAP=0.343.pth
+    cpt_path: /home/AIoT04/Dev/pretrained_models/Cnn6_mAP=0.343.pth
 
   ast:
     # name: ast
@@ -96,15 +96,17 @@ models:
     imagenet_pretrain: true
     label_dim: 4
     backbone_only: false
-    audioset_ckpt_path: /Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
 
 training:
   loss: cross_entropy
-  use_class_weights: false
-  epochs: 50
+  use_class_weights: true
+  epochs: 100
   kfold_splits: 5
   early_stopping: 15
   grad_clip: 1.0
+
+  device_id: 1
 
   optimizer:
     type: adamw
@@ -114,12 +116,12 @@ training:
     betas:
 
   scheduler:
-    type: cosine        # options: none, cosine, cosine_warmup, reduce_on_plateau
+    type: reduce_on_plateau        # options: none, cosine, cosine_warmup, reduce_on_plateau
     warmup_epochs: 10         # used only for warmup
-    start_linear_warmup: 1e-3
+    start_linear_warmup: 1e-4
     end_linear_warmup: 1.0
     min_lr: 1e-8
-    cosine_weight_decay: True
+    cosine_weight_decay: false
     final_weight_decay: 0.0
 
     reduce_factor: 0.5        # used for ReduceLROnPlateau

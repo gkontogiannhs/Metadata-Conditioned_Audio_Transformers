@@ -11,7 +11,7 @@ from ls.engine.logging_utils import get_or_create_experiment, log_all_params
 def main_single():
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
-    MODEL_KEY = "simplerespcnn"  # Options: "cnn6", "ast", "simplerespcnn"
+    MODEL_KEY = "ast"  # Options: "cnn6", "ast", "simplerespcnn"
     print(f"Using model: {MODEL_KEY}")
 
     # Set seed for reproducibility
@@ -32,11 +32,11 @@ def main_single():
     mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
     # Start MLFlow experiment
     mlflow.set_experiment(experiment_id=get_or_create_experiment(mlflow_cfg.experiment_name))
-    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep_single"
+    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep_single-aug-10s"
 
     with mlflow.start_run(run_name=run_name):
 
-        # Log configuration parameters
+        # Log configuration parameterss
         log_all_params(cfg)
 
         _, _ = train_loop(cfg.training, model, train_loader, val_loader=test_loader, test_loader=test_loader)

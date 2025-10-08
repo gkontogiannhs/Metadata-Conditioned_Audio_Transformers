@@ -38,7 +38,7 @@ def set_seed(seed: int = 42, deterministic: bool = True, verbose: bool = True):
         print(f"[Seed] Fixed all random seeds to {seed} ({device_type})")
 
 
-def get_device(verbose: bool = True) -> torch.device:
+def get_device(device_id: int = 5, verbose: bool = True) -> torch.device:
     """
     Returns the best available device among CUDA, MPS, and CPU.
     Automatically detects hardware availability.
@@ -49,10 +49,15 @@ def get_device(verbose: bool = True) -> torch.device:
     Returns:
         torch.device: torch.device("cuda"|"mps"|"cpu")
     """
+    # device_id = int(device_id)
     if torch.cuda.is_available():
-        device = torch.device("cuda")
+        num_devices = torch.cuda.device_count()
+        print(device_id, num_devices)
+        if device_id >= num_devices:
+            raise ValueError(f"Requested CUDA device {device_id}, but only {num_devices} available.")
+        device = torch.device(f"cuda:{device_id}")
         if verbose:
-            print(f"[Device] Using CUDA: {torch.cuda.get_device_name(0)}")
+            print(f"[Device] Using CUDA:{device_id} -> {torch.cuda.get_device_name(device_id)}")
     elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
         device = torch.device("mps")
         if verbose:

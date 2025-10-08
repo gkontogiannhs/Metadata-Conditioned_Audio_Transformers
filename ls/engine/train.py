@@ -134,7 +134,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """Train model with optional validation, final test evaluation."""
 
-    device = get_device()
+    device = get_device(device_id=cfg.get("device_id", 0))
+    print(device)
     model = model.to(device)
 
     # Setup training components
@@ -210,10 +211,11 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
             if icbhi > best_icbhi:
                 best_icbhi = icbhi
                 best_state_dict = model.state_dict()
-                ckpt_path = f"checkpoints/{cfg.model.name}_fold{fold_idx or 0}_best.pt"
+                # ckpt_path = f"checkpoints/{cfg.model.name}_fold{fold_idx or 0}_best.pt"
+                ckpt_path = f"checkpoints/ast-x_fold{fold_idx or 0}_best.pt"
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
                 torch.save(best_state_dict, ckpt_path)
-                mlflow.log_artifact(ckpt_path)
+                # mlflow.log_artifact(ckpt_path)
                 print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi:.2f})")
         # ------------------------
         # END OF EPOCH — Update LR & WD
@@ -241,7 +243,7 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
     # LOAD BEST MODEL for final testing
     # ------------------------
     if best_state_dict is not None:
-        model.load_state_dict(best_state_dict, map_location=device)
+        model.load_state_dict(best_state_dict)
         print(f"Loaded best model from Epoch {best_epoch} (ICBHI={best_icbhi:.2f})")
     else:
         print("No validation set provided — using last epoch weights as best model.")
