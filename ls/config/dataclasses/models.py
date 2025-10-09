@@ -23,6 +23,7 @@ class ASTConfig:
     label_dim: int = 4
     backbone_only: bool = False
     audioset_ckpt_path: Optional[str] = None
+    dropout: float = 0.3
 
 
 @dataclass

@@ -45,8 +45,9 @@ def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Ten
     elif loss_type == "weighted_ce":
         # Priority: dynamically computed weights > static config weights
         if class_weights is not None:
-            weights = class_weights.to(device)
-            print(f"[INFO] Using dynamically computed class weights: {weights.cpu().numpy().round(3).tolist()}")
+            # weights = class_weights.to(device)
+            # weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
+            print(f"[INFO] Using dynamically computed class weights: {class_weights.cpu().numpy().round(3).tolist()}")
         # elif hasattr(cfg, "loss") and hasattr(cfg.loss, "class_weights"):
         #     weights = torch.tensor(cfg.loss.class_weights, dtype=torch.float32).to(device)
         #     print(f"[INFO] Using static class weights from config: {weights.cpu().numpy().round(3).tolist()}")
@@ -55,7 +56,7 @@ def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Ten
                 "Weighted CE loss selected but no class weights provided. "
                 "Either compute them dynamically or specify cfg.loss.class_weights."
             )
-        return nn.CrossEntropyLoss(weight=weights).to(device)
+        return nn.CrossEntropyLoss(weight=class_weights).to(device)
 
     # -------------------------------
     # 3) Focal Loss
@@ -66,16 +67,18 @@ def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Ten
             def __init__(self, gamma=2.0, weight=None):
                 super().__init__()
                 self.gamma = gamma
+                if weight is not None:
+                    print(f"[INFO] Using dynamically computed class weights: {class_weights.cpu().numpy().round(3).tolist()}")
                 self.ce = nn.CrossEntropyLoss(weight=weight)
 
             def forward(self, inputs, targets):
-                ce_loss = self.ce(inputs, targets)
+                ce_loss = self.ce(inputs.float(), targets)
                 pt = torch.exp(-ce_loss)
                 return ((1 - pt) ** self.gamma * ce_loss).mean()
 
-        gamma = getattr(cfg.loss, "gamma", 2.0)
-        weights = class_weights.to(device) if class_weights is not None else None
-        return FocalLoss(gamma=gamma, weight=weights).to(device)
+        gamma = float(getattr(cfg, "gamma", 2.0))
+        # weights = class_weights.to(device) if class_weights is not None else None
+        return FocalLoss(gamma=gamma, weight=class_weights).to(device)
 
     # -------------------------------
     # 4) Unknown loss
@@ -131,23 +134,62 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 # Main training loops
 # ------------------------------------------------------
 
+def set_visible_gpus(gpus: str, verbose: bool = True):
+    """
+    Restrict which GPUs PyTorch can see by setting CUDA_VISIBLE_DEVICES.
+
+    Args:
+        gpus (str): Comma-separated GPU indices, e.g., "0,1,2,3".
+        verbose (bool): If True, print the selection info.
+    """
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+    if verbose:
+        print(f"[CUDA] Visible devices set to: {gpus}")
+
+    # Optional sanity check after setting
+    torch.cuda.device_count()  # forces CUDA to reinitialize
+
+
 def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """Train model with optional validation, final test evaluation."""
 
-    device = get_device(device_id=cfg.get("device_id", 0))
-    print(device)
+    # Hardware config
+    hw_cfg = cfg.hardware
+
+    # Restrict visible GPUs if specified
+    if "visible_gpus" in hw_cfg:
+        set_visible_gpus(hw_cfg.visible_gpus, verbose=True)
+
+    # Select device
+    device_id = getattr(hw_cfg, "device_id", 0)
+    device = get_device(device_id=device_id, verbose=True)
+
+    # Handle DataParallel logic
+    use_dp = getattr(hw_cfg, "use_dataparallel", False)
+
+    if use_dp and torch.cuda.device_count() > 1:
+        print(f"[Model] Using {torch.cuda.device_count()} GPUs via DataParallel")
+        model = nn.DataParallel(model)
+    elif use_dp and torch.cuda.device_count() <= 1:
+        print("[Model] Skipping DataParallel: only one GPU visible")
+    else:
+        print(f"[Model] Using single device: {device}")
+
+    # Move model to device
     model = model.to(device)
 
     # Setup training components
     if getattr(cfg, "use_class_weights", False):
         labels = np.array([s['label'] for s  in train_loader.dataset.samples])
         n_classes = len(train_loader.dataset.class_counts)
+        print("Computing the following class weights based on training set:")
         weights = compute_class_weight(
             class_weight="balanced",
             classes=np.arange(n_classes),
             y=labels
         )
-        class_weights = torch.tensor(weights, dtype=torch.float)
+        weights = weights / weights.sum() # normalize to sum to 1
+        class_weights = torch.tensor(weights, dtype=torch.float).to(device)
     else:
         class_weights = None
     criterion = get_loss(cfg, device, class_weights)
@@ -175,6 +217,15 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
         # ------------------------
         # TRAIN
         # ------------------------
+
+        # if epoch < 10:
+        #     model.module.freeze_backbone()                  # train only classifier
+        # elif epoch == 10:
+        #     model.module.unfreeze_all()
+        #     model.module.freeze_backbone(until_block=9)     # unfreeze last 3–4 blocks
+        # elif epoch == 30:
+        #     model.module.unfreeze_all()
+
         train_loss, train_metrics = train_one_epoch(
             model, train_loader, criterion, optimizer, device, scaler, epoch
         )
@@ -212,7 +263,7 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
                 best_icbhi = icbhi
                 best_state_dict = model.state_dict()
                 # ckpt_path = f"checkpoints/{cfg.model.name}_fold{fold_idx or 0}_best.pt"
-                ckpt_path = f"checkpoints/ast-x_fold{fold_idx or 0}_best.pt"
+                ckpt_path = f"checkpoints/{cfg.model_name}-{epoch}_fold{fold_idx or 0}_best.pt"
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
                 torch.save(best_state_dict, ckpt_path)
                 # mlflow.log_artifact(ckpt_path)

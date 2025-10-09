@@ -9,3 +9,4 @@ imagenet_pretrained: false
 label_dim: 4
 backbone_only: false
 cpt_path: /Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth
+dropout: 0.3

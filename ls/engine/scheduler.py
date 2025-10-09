@@ -44,7 +44,7 @@ def build_scheduler(cfg: SchedulerConfig, epochs: int, optimizer: optim.Optimize
         )
 
     # --- Reduce on Plateau ---
-    elif cfg.use == "reduce_on_plateau":
+    elif cfg.type == "reduce_on_plateau":
         return ReduceLROnPlateau(
             optimizer,
             mode=cfg.reduce_mode,

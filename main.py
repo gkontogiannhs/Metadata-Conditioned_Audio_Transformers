@@ -12,6 +12,7 @@ def main_single():
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
     MODEL_KEY = "ast"  # Options: "cnn6", "ast", "simplerespcnn"
+    
     print(f"Using model: {MODEL_KEY}")
 
     # Set seed for reproducibility
@@ -32,7 +33,7 @@ def main_single():
     mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
     # Start MLFlow experiment
     mlflow.set_experiment(experiment_id=get_or_create_experiment(mlflow_cfg.experiment_name))
-    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep_single-aug-10s"
+    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep_single-aug-10s-more"
 
     with mlflow.start_run(run_name=run_name):
 

@@ -52,7 +52,8 @@ class ASTModel(nn.Module):
             audioset_ckpt_path='',
             model_size='base384', 
             verbose=True, 
-            backbone_only: bool = False
+            backbone_only: bool = False,
+            dropout_p: float = 0.3,
         ):
 
         super(ASTModel, self).__init__()
@@ -63,9 +64,7 @@ class ASTModel(nn.Module):
             print('ImageNet pretraining: {:s}, AudioSet pretraining: {:s}'.format(str(imagenet_pretrain),str(audioset_pretrain)))
         # override timm input shape restriction
         timm.models.vision_transformer.PatchEmbed = PatchEmbed
-
-        self.mlp_head = None
-
+        self.reg_dropout = nn.Dropout(dropout_p)
         # if AudioSet pretraining is not used (but ImageNet pretraining may still apply)
         if audioset_pretrain == False:
             if model_size == 'tiny224':
@@ -82,8 +81,11 @@ class ASTModel(nn.Module):
             self.original_num_patches = self.v.patch_embed.num_patches
             self.oringal_hw = int(self.original_num_patches ** 0.5)
             self.original_embedding_dim = self.v.pos_embed.shape[2]
+
+            self.mlp_head = None
+
             if not backbone_only:
-                self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), nn.Linear(self.original_embedding_dim, label_dim))
+                self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
 
             # automatcially get the intermediate shape
             f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
@@ -142,7 +144,7 @@ class ASTModel(nn.Module):
             self.v = audio_model.module.v
             self.original_embedding_dim = self.v.pos_embed.shape[2]
             if not backbone_only:
-                self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), nn.Linear(self.original_embedding_dim, label_dim))
+                self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
 
             f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
             num_patches = f_dim * t_dim
@@ -175,7 +177,9 @@ class ASTModel(nn.Module):
         return f_dim, t_dim
 
     def forward_features(self, x):
-        # expects input x shape: (batch_size, 1, freq_bins, time_frames), e.g., (12, 1, 128, 1024)
+        """
+        Expects input x shape: (B, 1, F, T), e.g., (12, 1, 128, 1024)
+        """
         B = x.shape[0]
         x = self.v.patch_embed(x)
         cls_tokens = self.v.cls_token.expand(B, -1, -1)
@@ -183,24 +187,38 @@ class ASTModel(nn.Module):
         x = torch.cat((cls_tokens, dist_token, x), dim=1)
         x = x + self.v.pos_embed
         x = self.v.pos_drop(x)
+
+        # 🔹 Transformer encoder blocks
         for blk in self.v.blocks:
             x = blk(x)
+
         x = self.v.norm(x)
-        x = (x[:, 0] + x[:, 1]) / 2
+        x = (x[:, 0] + x[:, 1]) / 2  # average CLS and distillation tokens
         return x
 
-    @torch.amp.autocast(DEVICE.type)
+    @torch.amp.autocast(device_type=DEVICE.type)
     def forward(self, x):
         """
-        :param x: the input spectrogram, expected shape: (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128)
-        :return: prediction or features if backbone_only
+        :param x: spectrogram (B, 1, F, T)
+        :return: prediction logits or features if backbone_only
         """
-        # expect input x = (batch_size, time_frame_num, frequency_bins), e.g., (12, 1024, 128) -> CHANGED TO (B, 1, F, T)
-        # x = x.unsqueeze(1) # add channel dimension, (12, 1, 1024, 128)
-        # x = x.transpose(2, 3) # (12, 1, 128, 1024)
-
         x = self.forward_features(x)
 
         if self.mlp_head is not None:
             x = self.mlp_head(x)
+
         return x
+    
+    def freeze_backbone(self, until_block=None):
+        """
+        Freezes all transformer blocks up to (and including) 'until_block'.
+        Pass None to freeze all.
+        """
+        for i, blk in enumerate(self.v.blocks):
+            if until_block is None or i <= until_block:
+                for p in blk.parameters():
+                    p.requires_grad = False
+
+    def unfreeze_all(self):
+        for p in self.v.parameters():
+            p.requires_grad = True

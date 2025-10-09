@@ -5,9 +5,6 @@ from ls.metrics import compute_classification_metrics
 
 
 def evaluate(model, data_loader, criterion, device):
-    """
-    Evaluate model on a given loader and return loss + metrics.
-    """
     model.eval()
     total_loss, n_samples = 0.0, 0
     all_preds, all_labels, all_probs = [], [], []
@@ -16,26 +13,70 @@ def evaluate(model, data_loader, criterion, device):
         for batch in data_loader:
             x, y = batch["input_values"].to(device), batch["labels"].to(device)
             logits = model(x)
-            loss = criterion(logits, y) if criterion else 0.0
+            loss = criterion(logits.float(), y)
 
-            probs = torch.softmax(logits, dim=1).cpu().numpy()
+            probs = torch.softmax(logits, dim=1).detach().cpu().to(torch.float32).numpy()
             preds = np.argmax(probs, axis=1)
 
-            all_labels.extend(y.cpu().numpy())
-            all_preds.extend(preds)
-            all_probs.extend(probs)
+            all_labels.append(y.cpu().numpy())
+            all_preds.append(preds)
+            all_probs.append(probs)
 
             total_loss += loss.item() * x.size(0)
             n_samples += x.size(0)
             
+    print(f"Probs shape: {probs.shape}, type: {type(probs)}")
+    all_labels = np.concatenate(all_labels)
+    print("all_labels shape:", all_labels.shape, all_labels.min(), all_labels.max())
+    all_preds = np.concatenate(all_preds)
+    print("all_preds shape:", all_preds.shape, all_preds.min(), all_preds.max())
+    all_probs = np.concatenate(all_probs)
+    print("all_probs shape:", all_probs.shape, all_probs.min(), all_probs.max())
+
     avg_loss = total_loss / n_samples
     n_classes = logits.shape[1]
 
-    metrics = compute_classification_metrics(
-        np.array(all_labels), np.array(all_preds), np.array(all_probs), n_classes=n_classes
-    )
-
+    metrics = compute_classification_metrics(all_labels, all_preds, all_probs, n_classes=n_classes)
     return avg_loss, metrics
+
+
+# def evaluate(model, data_loader, criterion, device):
+#     """
+#     Evaluate model on a given loader and return loss + metrics.
+#     """
+#     model.eval()
+#     total_loss, n_samples = 0.0, 0
+#     all_preds, all_labels, all_probs = [], [], []
+
+#     with torch.no_grad():
+#         for batch in data_loader:
+#             x, y = batch["input_values"].to(device), batch["labels"].to(device)
+#             logits = model(x)
+#             # with torch.amp.autocast(device.type, enabled=False):
+#             loss = criterion(logits.float(), y)
+
+#             probs = torch.softmax(logits, dim=1).cpu().numpy()
+#             preds = np.argmax(probs, axis=1)
+
+#             all_labels.extend(y.cpu().numpy())
+#             all_preds.extend(preds)
+#             all_probs.extend(probs)
+
+#             total_loss += loss.item() * x.size(0)
+#             n_samples += x.size(0)
+    
+#     all_probs = np.concatenate(all_probs, axis=0)
+#     all_preds = np.concatenate(all_preds, axis=0)
+#     all_labels = np.concatenate(all_labels, axis=0)
+
+#     avg_loss = total_loss / n_samples
+#     n_classes = logits.shape[1]
+
+#     metrics = compute_classification_metrics(
+#         np.array(all_labels), np.array(all_preds), np.array(all_probs), n_classes=n_classes
+#     )
+
+#     return avg_loss, metrics
 
     # # Pretty print
     # print(f"[{prefix}][Epoch {epoch}] "
