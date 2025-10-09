@@ -81,7 +81,7 @@ def set_visible_gpus(gpus: str, verbose: bool = True):
         print(f"[CUDA] Visible devices set to: {gpus}")
 
     # Optional sanity check after setting
-    # torch.cuda.device_count()  # forces CUDA to reinitialize
+    torch.cuda.device_count()  # forces CUDA to reinitialize
 
 
 def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
@@ -101,13 +101,13 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
     # Handle DataParallel logic
     use_dp = getattr(hw_cfg, "use_dataparallel", False)
 
-    if use_dp and torch.cuda.device_count() > 1:
-        print(f"[Model] Using {torch.cuda.device_count()} GPUs via DataParallel")
-        model = nn.DataParallel(model)
-    elif use_dp and torch.cuda.device_count() <= 1:
-        print("[Model] Skipping DataParallel: only one GPU visible")
-    else:
-        print(f"[Model] Using single device: {device}")
+    # if use_dp and torch.cuda.device_count() > 1:
+    #     print(f"[Model] Using {torch.cuda.device_count()} GPUs via DataParallel")
+    #     model = nn.DataParallel(model)
+    # elif use_dp and torch.cuda.device_count() <= 1:
+    #     print("[Model] Skipping DataParallel: only one GPU visible")
+    # else:
+    #     print(f"[Model] Using single device: {device}")
 
     # Move model to device
     model = model.to(device)
@@ -131,7 +131,7 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
 
     epochs = cfg.epochs
     initial_wd = float(cfg.optimizer.weight_decay)
-    final_wd = float(cfg.scheduler.final_weight_decay)
+    final_wd = float(cfg.optimizer.final_weight_decay)
     lr = float(cfg.optimizer.lr)
 
     optimizer = optim.AdamW(
@@ -197,11 +197,11 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
             if icbhi > best_icbhi:
                 best_icbhi = icbhi
                 best_state_dict = model.state_dict()
-                # ckpt_path = f"checkpoints/{cfg.model.name}_fold{fold_idx or 0}_best.pt"
-                ckpt_path = f"checkpoints/{cfg.model_name}-{epoch}_fold{fold_idx or 0}_best.pt"
+                ckpt_path = f"checkpoints/{epoch}_Sp={val_metrics['specificity']:.2f}_S_e={val_metrics['sensitivity']:.2f}_icbhiScore={icbhi:.2f}_fold{fold_idx or 0}_best.pt"
+                # ckpt_path = f"checkpoints/{cfg.model_name}-{epoch}_fold{fold_idx or 0}_best.pt"
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
                 torch.save(best_state_dict, ckpt_path)
-                # mlflow.log_artifact(ckpt_path)
+                mlflow.log_artifact(ckpt_path, artifact_path="model_checkpoints")
                 print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi:.2f})")
         # ------------------------
         # END OF EPOCH — Update LR & WD
@@ -219,7 +219,7 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
             print(f"Learning rate: {lr}")
             mlflow.log_metric("lr", lr, step=epoch)
 
-        if cfg.scheduler.cosine_weight_decay:
+        if cfg.optimizer.cosine_weight_decay:
             new_wd = _get_cosine_weight_decay(epoch)
             for g in optimizer.param_groups:
                 g["weight_decay"] = new_wd

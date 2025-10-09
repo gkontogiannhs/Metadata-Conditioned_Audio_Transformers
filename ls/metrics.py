@@ -38,6 +38,7 @@ def compute_classification_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_pro
     Returns:
         dict of metrics
     """
+    num_to_class = {0: 'normal', 1: 'crackles', 2: 'wheezes', 3: 'both'}
     metrics = {}
     metrics["accuracy"] = (y_true == y_pred).mean() * 100
     metrics["balanced_acc"] = balanced_accuracy_score(y_true, y_pred) * 100
@@ -47,29 +48,29 @@ def compute_classification_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_pro
 
     if y_prob is not None and n_classes and n_classes > 2:
         try:
-            
+            # Ensure proper shapes and types
             y_true = np.asarray(y_true, dtype=int)
             y_prob = np.asarray(y_prob, dtype=np.float64)
 
-            # numeric cleanup
+            # Clip and normalize probabilities
             y_prob = np.clip(y_prob, 0.0, 1.0)
-            row_sums = y_prob.sum(axis=1, keepdims=True)
-            y_prob = y_prob / np.maximum(row_sums, 1e-12)
-
+            y_prob = y_prob / np.maximum(y_prob.sum(axis=1, keepdims=True), 1e-12)
             # small tolerance rounding to shut sklearn up
             y_prob = np.round(y_prob, 12)
 
-            metrics["auroc_macro"] = roc_auc_score(
-                y_true, y_prob, multi_class="ovr", average="macro"
-            ) * 100
-            metrics["auroc_weighted"] = roc_auc_score(
-                y_true, y_prob, multi_class="ovr", average="weighted"
-            ) * 100
+            metrics["auroc_macro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="macro") * 100
+            metrics["auroc_weighted"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="weighted") * 100
+
+            per_class_auroc = roc_auc_score(y_true, y_prob, multi_class="ovr", average=None) * 100
+            for i, score in enumerate(per_class_auroc):
+                metrics[f"auroc_class_{num_to_class[i]}"] = score
+
         except Exception as e:
             print(f"[WARN] AUROC computation failed: {e}")
-            metrics["auroc_macro"] = -1
-            metrics["auroc_weighted"] = -1
-
+            metrics["auroc_macro"] = np.nan
+            metrics["auroc_weighted"] = np.nan
+            for i in range(n_classes):
+                metrics[f"auroc_class_{num_to_class[i]}"] = np.nan
 
     # ---- ICBHI metric ----
     cm = confusion_matrix(y_true, y_pred, labels=list(range(n_classes)))

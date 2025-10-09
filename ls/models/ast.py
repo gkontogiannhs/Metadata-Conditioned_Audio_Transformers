@@ -54,7 +54,7 @@ class ASTModel(nn.Module):
             model_size='base384', 
             verbose=True, 
             backbone_only: bool = False,
-            dropout_p: float = 0.3,
+            dropout_p: float = 0.5,
         ):
 
         super(ASTModel, self).__init__()
@@ -140,9 +140,10 @@ class ASTModel(nn.Module):
             print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
             sd = torch.load(audioset_ckpt_path, map_location=DEVICE)
             audio_model = ASTModel(label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=False, audioset_pretrain=False, model_size='base384', verbose=False)
-            audio_model = torch.nn.DataParallel(audio_model)
+            # audio_model = torch.nn.DataParallel(audio_model)
             audio_model.load_state_dict(sd, strict=False)
-            self.v = audio_model.module.v
+            # self.v = audio_model.module.v
+            self.v = audio_model.v
             self.original_embedding_dim = self.v.pos_embed.shape[2]
             if not backbone_only:
                 self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
