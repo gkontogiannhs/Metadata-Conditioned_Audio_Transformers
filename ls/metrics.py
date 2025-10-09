@@ -47,26 +47,24 @@ def compute_classification_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_pro
 
     if y_prob is not None and n_classes and n_classes > 2:
         try:
-            print("[DEBUG] n_classes:", n_classes)
-            print("[DEBUG] y_prob.shape:", y_prob.shape)
-            print("[DEBUG] y_true unique:", np.unique(y_true))
-            print("[DEBUG] any NaN in y_prob:", np.isnan(y_prob).any())
-            print("[DEBUG] min/max prob:", np.min(y_prob), np.max(y_prob))
-            print("Row sum mean:", np.mean(y_prob.sum(axis=1)))
-            print("Row sum range:", np.min(y_prob.sum(axis=1)), np.max(y_prob.sum(axis=1)))
+            
+            y_true = np.asarray(y_true, dtype=int)
+            y_prob = np.asarray(y_prob, dtype=np.float64)
 
-            print("y_prob dtype:", y_prob.dtype)
-            print("y_true dtype:", y_true.dtype)
-            print("unique y_true:", np.unique(y_true))
-            print("y_prob shape:", y_prob.shape)
-            print("sum(y_prob[0]):", y_prob[0].sum())
-            print("np.isnan(y_prob).any():", np.isnan(y_prob).any())
-            print("np.isinf(y_prob).any():", np.isinf(y_prob).any())
-            print("y_prob row sums:", y_prob.sum(axis=1)[:5])
-            print("classes vs probs columns:", len(np.unique(y_true)), y_prob.shape[1])
-            y_prob = np.asarray(y_prob, dtype=np.float32)
-            metrics["auroc_macro"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="macro") * 100
-            metrics["auroc_weighted"] = roc_auc_score(y_true, y_prob, multi_class="ovr", average="weighted") * 100
+            # numeric cleanup
+            y_prob = np.clip(y_prob, 0.0, 1.0)
+            row_sums = y_prob.sum(axis=1, keepdims=True)
+            y_prob = y_prob / np.maximum(row_sums, 1e-12)
+
+            # small tolerance rounding to shut sklearn up
+            y_prob = np.round(y_prob, 12)
+
+            metrics["auroc_macro"] = roc_auc_score(
+                y_true, y_prob, multi_class="ovr", average="macro"
+            ) * 100
+            metrics["auroc_weighted"] = roc_auc_score(
+                y_true, y_prob, multi_class="ovr", average="weighted"
+            ) * 100
         except Exception as e:
             print(f"[WARN] AUROC computation failed: {e}")
             metrics["auroc_macro"] = -1

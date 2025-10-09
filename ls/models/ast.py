@@ -7,7 +7,8 @@ from timm.models.layers import to_2tuple,trunc_normal_
 import timm
 from ls.engine.utils import get_device
 
-DEVICE = get_device()
+# DEVICE = get_device(0)
+DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 
 # override the timm package to relax the input shape constraint.
 class PatchEmbed(nn.Module):
@@ -133,7 +134,7 @@ class ASTModel(nn.Module):
                 raise ValueError('currently model pretrained on only audioset is not supported, please set imagenet_pretrain = True to use audioset pretrained model.')
             if model_size != 'base384':
                 raise ValueError('currently only has base384 AudioSet pretrained model.')
-            # device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+
             if not os.path.exists(audioset_ckpt_path):
                 raise FileNotFoundError(f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'. Please download it manually.")
             print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")

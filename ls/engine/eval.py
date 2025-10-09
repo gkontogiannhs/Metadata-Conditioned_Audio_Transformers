@@ -15,7 +15,7 @@ def evaluate(model, data_loader, criterion, device):
             logits = model(x)
             loss = criterion(logits.float(), y)
 
-            probs = torch.softmax(logits, dim=1).detach().cpu().to(torch.float32).numpy()
+            probs = torch.softmax(logits, dim=1).detach().cpu().numpy()
             preds = np.argmax(probs, axis=1)
 
             all_labels.append(y.cpu().numpy())
@@ -25,13 +25,9 @@ def evaluate(model, data_loader, criterion, device):
             total_loss += loss.item() * x.size(0)
             n_samples += x.size(0)
             
-    print(f"Probs shape: {probs.shape}, type: {type(probs)}")
     all_labels = np.concatenate(all_labels)
-    print("all_labels shape:", all_labels.shape, all_labels.min(), all_labels.max())
     all_preds = np.concatenate(all_preds)
-    print("all_preds shape:", all_preds.shape, all_preds.min(), all_preds.max())
     all_probs = np.concatenate(all_probs)
-    print("all_probs shape:", all_probs.shape, all_probs.min(), all_probs.max())
 
     avg_loss = total_loss / n_samples
     n_classes = logits.shape[1]

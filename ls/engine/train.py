@@ -17,74 +17,7 @@ from ls.metrics import compute_classification_metrics
 from ls.engine.scheduler import build_scheduler
 from ls.engine.utils import get_device
 from ls.config.dataclasses import TrainingConfig
-
-
-def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Tensor = None):
-    """
-    Return loss function based on config and optional per-fold class weights.
-
-    Args:
-        cfg: Configuration object (Box or dataclass-like)
-        device: torch.device
-        class_weights: torch.Tensor or None (computed dynamically per fold)
-
-    Returns:
-        torch.nn.Module: Configured loss function
-    """
-    loss_type = getattr(cfg, "loss", "cross_entropy")
-
-    # -------------------------------
-    # 1) Standard Cross Entropy
-    # -------------------------------
-    if loss_type == "cross_entropy":
-        return nn.CrossEntropyLoss().to(device)
-
-    # -------------------------------
-    # 2) Weighted Cross Entropy
-    # -------------------------------
-    elif loss_type == "weighted_ce":
-        # Priority: dynamically computed weights > static config weights
-        if class_weights is not None:
-            # weights = class_weights.to(device)
-            # weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
-            print(f"[INFO] Using dynamically computed class weights: {class_weights.cpu().numpy().round(3).tolist()}")
-        # elif hasattr(cfg, "loss") and hasattr(cfg.loss, "class_weights"):
-        #     weights = torch.tensor(cfg.loss.class_weights, dtype=torch.float32).to(device)
-        #     print(f"[INFO] Using static class weights from config: {weights.cpu().numpy().round(3).tolist()}")
-        else:
-            raise ValueError(
-                "Weighted CE loss selected but no class weights provided. "
-                "Either compute them dynamically or specify cfg.loss.class_weights."
-            )
-        return nn.CrossEntropyLoss(weight=class_weights).to(device)
-
-    # -------------------------------
-    # 3) Focal Loss
-    # -------------------------------
-    elif loss_type == "focal":
-
-        class FocalLoss(nn.Module):
-            def __init__(self, gamma=2.0, weight=None):
-                super().__init__()
-                self.gamma = gamma
-                if weight is not None:
-                    print(f"[INFO] Using dynamically computed class weights: {class_weights.cpu().numpy().round(3).tolist()}")
-                self.ce = nn.CrossEntropyLoss(weight=weight)
-
-            def forward(self, inputs, targets):
-                ce_loss = self.ce(inputs.float(), targets)
-                pt = torch.exp(-ce_loss)
-                return ((1 - pt) ** self.gamma * ce_loss).mean()
-
-        gamma = float(getattr(cfg, "gamma", 2.0))
-        # weights = class_weights.to(device) if class_weights is not None else None
-        return FocalLoss(gamma=gamma, weight=class_weights).to(device)
-
-    # -------------------------------
-    # 4) Unknown loss
-    # -------------------------------
-    else:
-        raise ValueError(f"Unknown loss type: {loss_type}")
+from ls.engine.utils import get_loss
 
 
 # ------------------------------------------------------
@@ -103,7 +36,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
     for batch in tqdm(dataloader, desc=f"[Train][Epoch {epoch}]", leave=False):
         inputs, labels = batch["input_values"].to(device), batch["labels"].to(device)
 
-        optimizer.zero_grad(set_to_none=True)
+        optimizer.zero_grad(set_to_none=False)
         with torch.amp.autocast(device.type):
             logits = model(inputs)
             loss = criterion(logits, labels)
@@ -115,6 +48,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
         total_loss += loss.item() * inputs.size(0)
         n_samples += inputs.size(0)
 
+        # probs = torch.softmax(logits, dim=1).detach().cpu().numpy()
         probs = torch.softmax(logits, dim=1).detach().cpu().numpy()
         preds = np.argmax(probs, axis=1)
         all_labels.extend(labels.cpu().numpy())
@@ -147,7 +81,7 @@ def set_visible_gpus(gpus: str, verbose: bool = True):
         print(f"[CUDA] Visible devices set to: {gpus}")
 
     # Optional sanity check after setting
-    torch.cuda.device_count()  # forces CUDA to reinitialize
+    # torch.cuda.device_count()  # forces CUDA to reinitialize
 
 
 def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
@@ -177,19 +111,20 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
 
     # Move model to device
     model = model.to(device)
+    print(f"Model moved to {device}")
 
     # Setup training components
     if getattr(cfg, "use_class_weights", False):
         labels = np.array([s['label'] for s  in train_loader.dataset.samples])
         n_classes = len(train_loader.dataset.class_counts)
-        print("Computing the following class weights based on training set:")
         weights = compute_class_weight(
             class_weight="balanced",
             classes=np.arange(n_classes),
             y=labels
         )
+        print(f"Using computed class weights: {weights}", weights.dtype)
         weights = weights / weights.sum() # normalize to sum to 1
-        class_weights = torch.tensor(weights, dtype=torch.float).to(device)
+        class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
     else:
         class_weights = None
     criterion = get_loss(cfg, device, class_weights)
