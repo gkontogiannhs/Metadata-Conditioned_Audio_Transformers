@@ -52,11 +52,7 @@ def main_multi_seed(n_seeds: int = 5):
                 cfg.training, model, train_loader, val_loader=val_loader, test_loader=val_loader
             )
 
-            # --- 6. Optionally log summary metrics ---
-            for k, v in metrics.items():
-                mlflow.log_metric(k, v)
-
-        print(f"[Done] Seed {seed} finished and logged to MLflow ✅")
+        print(f"[Done] Seed {seed} finished and logged to MLflow")
 
 
 if __name__ == "__main__":
