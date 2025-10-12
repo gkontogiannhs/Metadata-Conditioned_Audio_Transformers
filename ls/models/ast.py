@@ -127,48 +127,145 @@ class ASTModel(nn.Module):
                 new_pos_embed = nn.Parameter(torch.zeros(1, self.v.patch_embed.num_patches + 2, self.original_embedding_dim))
                 self.v.pos_embed = new_pos_embed
                 trunc_normal_(self.v.pos_embed, std=.02)
-
-        # now load a model that is pretrained on both ImageNet and AudioSet
+                
+        # ================================================================
+        #  Pretrained on AudioSet + ImageNet
+        # ================================================================
         elif audioset_pretrain == True:
-            if audioset_pretrain == True and imagenet_pretrain == False:
-                raise ValueError('currently model pretrained on only audioset is not supported, please set imagenet_pretrain = True to use audioset pretrained model.')
-            if model_size != 'base384':
-                raise ValueError('currently only has base384 AudioSet pretrained model.')
+            if audioset_pretrain and not imagenet_pretrain:
+                raise ValueError(
+                    "Model pretrained only on AudioSet is not supported; "
+                    "set imagenet_pretrain=True as well."
+                )
+            if model_size != "base384":
+                raise ValueError("Only base384 AudioSet pretrained model is available.")
 
             if not os.path.exists(audioset_ckpt_path):
-                raise FileNotFoundError(f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'. Please download it manually.")
+                raise FileNotFoundError(
+                    f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'."
+                )
             print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
+
+            # ------------------------------------------------------------
+            # Load the pretrained AudioSet weights into a temporary model
+            # ------------------------------------------------------------
             sd = torch.load(audioset_ckpt_path, map_location=DEVICE)
-            audio_model = ASTModel(label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=False, audioset_pretrain=False, model_size='base384', verbose=False)
-            # audio_model = torch.nn.DataParallel(audio_model)
+            audio_model = ASTModel(
+                label_dim=527,
+                fstride=10,
+                tstride=10,
+                input_fdim=128,
+                input_tdim=1024,
+                imagenet_pretrain=False,
+                audioset_pretrain=False,
+                model_size="base384",
+                verbose=False,
+            )
             audio_model.load_state_dict(sd, strict=False)
-            # self.v = audio_model.module.v
             self.v = audio_model.v
             self.original_embedding_dim = self.v.pos_embed.shape[2]
-            if not backbone_only:
-                self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
 
+            # ------------------------------------------------------------
+            # Classification head
+            # ------------------------------------------------------------
+            if not backbone_only:
+                self.mlp_head = nn.Sequential(
+                    nn.LayerNorm(self.original_embedding_dim),
+                    self.reg_dropout,
+                    nn.Linear(self.original_embedding_dim, label_dim),
+                )
+
+            # ------------------------------------------------------------
+            # Compute patch grid and patch embed projection
+            # ------------------------------------------------------------
             f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
             num_patches = f_dim * t_dim
             self.v.patch_embed.num_patches = num_patches
-            if verbose == True:
-                print('frequncey stride={:d}, time stride={:d}'.format(fstride, tstride))
-                print('number of patches={:d}'.format(num_patches))
+            if verbose:
+                print(f"frequency stride={fstride}, time stride={tstride}")
+                print(f"number of patches={num_patches}")
 
-            new_pos_embed = self.v.pos_embed[:, 2:, :].detach().reshape(1, 1212, 768).transpose(1, 2).reshape(1, 768, 12, 101)
-            # if the input sequence length is larger than the original audioset (10s), then cut the positional embedding
-            if t_dim < 101:
-                new_pos_embed = new_pos_embed[:, :, :, 50 - int(t_dim/2): 50 - int(t_dim/2) + t_dim]
-            # otherwise interpolate
-            else:
-                new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(12, t_dim), mode='bilinear')
-            if f_dim < 12:
-                new_pos_embed = new_pos_embed[:, :, 6 - int(f_dim/2): 6 - int(f_dim/2) + f_dim, :]
-            # otherwise interpolate
-            elif f_dim > 12:
-                new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(f_dim, t_dim), mode='bilinear')
-            new_pos_embed = new_pos_embed.reshape(1, 768, num_patches).transpose(1, 2)
-            self.v.pos_embed = nn.Parameter(torch.cat([self.v.pos_embed[:, :2, :].detach(), new_pos_embed], dim=1))
+            # ------------------------------------------------------------
+            # Adapt positional embedding automatically
+            # ------------------------------------------------------------
+            with torch.no_grad():
+                # Original AudioSet grid: 12 (freq) × 101 (time)
+                orig_f_dim, orig_t_dim = 12, 101
+                pos_embed = self.v.pos_embed[:, 2:, :].detach()
+                pos_embed = pos_embed.reshape(
+                    1, self.original_embedding_dim, orig_f_dim, orig_t_dim
+                )
+
+                # Interpolate to match the new patch grid
+                pos_embed_interp = torch.nn.functional.interpolate(
+                    pos_embed, size=(f_dim, t_dim), mode="bilinear", align_corners=False
+                )
+
+                # Flatten back to sequence form
+                pos_embed_interp = (
+                    pos_embed_interp.reshape(1, self.original_embedding_dim, -1)
+                    .transpose(1, 2)
+                    .contiguous()
+                )
+
+                # Reattach CLS + distillation tokens
+                self.v.pos_embed = nn.Parameter(
+                    torch.cat([self.v.pos_embed[:, :2, :].detach(), pos_embed_interp], dim=1)
+                )
+
+            # ------------------------------------------------------------
+            # Adjust patch projection if input stride differs
+            # ------------------------------------------------------------
+            new_proj = torch.nn.Conv2d(
+                1, self.original_embedding_dim, kernel_size=(16, 16),
+                stride=(fstride, tstride)
+            )
+            new_proj.weight = torch.nn.Parameter(
+                torch.sum(self.v.patch_embed.proj.weight, dim=1).unsqueeze(1)
+            )
+            new_proj.bias = self.v.patch_embed.proj.bias
+            self.v.patch_embed.proj = new_proj
+        # # now load a model that is pretrained on both ImageNet and AudioSet
+        # elif audioset_pretrain == True:
+        #     if audioset_pretrain == True and imagenet_pretrain == False:
+        #         raise ValueError('currently model pretrained on only audioset is not supported, please set imagenet_pretrain = True to use audioset pretrained model.')
+        #     if model_size != 'base384':
+        #         raise ValueError('currently only has base384 AudioSet pretrained model.')
+
+        #     if not os.path.exists(audioset_ckpt_path):
+        #         raise FileNotFoundError(f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'. Please download it manually.")
+        #     print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
+        #     sd = torch.load(audioset_ckpt_path, map_location=DEVICE)
+        #     audio_model = ASTModel(label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=False, audioset_pretrain=False, model_size='base384', verbose=False)
+        #     # audio_model = torch.nn.DataParallel(audio_model)
+        #     audio_model.load_state_dict(sd, strict=False)
+        #     # self.v = audio_model.module.v
+        #     self.v = audio_model.v
+        #     self.original_embedding_dim = self.v.pos_embed.shape[2]
+        #     if not backbone_only:
+        #         self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
+
+        #     f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
+        #     num_patches = f_dim * t_dim
+        #     self.v.patch_embed.num_patches = num_patches
+        #     if verbose == True:
+        #         print('frequncey stride={:d}, time stride={:d}'.format(fstride, tstride))
+        #         print('number of patches={:d}'.format(num_patches))
+
+        #     new_pos_embed = self.v.pos_embed[:, 2:, :].detach().reshape(1, 1212, 768).transpose(1, 2).reshape(1, 768, 12, 101)
+        #     # if the input sequence length is larger than the original audioset (10s), then cut the positional embedding
+        #     if t_dim < 101:
+        #         new_pos_embed = new_pos_embed[:, :, :, 50 - int(t_dim/2): 50 - int(t_dim/2) + t_dim]
+        #     # otherwise interpolate
+        #     else:
+        #         new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(12, t_dim), mode='bilinear')
+        #     if f_dim < 12:
+        #         new_pos_embed = new_pos_embed[:, :, 6 - int(f_dim/2): 6 - int(f_dim/2) + f_dim, :]
+        #     # otherwise interpolate
+        #     elif f_dim > 12:
+        #         new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(f_dim, t_dim), mode='bilinear')
+        #     new_pos_embed = new_pos_embed.reshape(1, 768, num_patches).transpose(1, 2)
+        #     self.v.pos_embed = nn.Parameter(torch.cat([self.v.pos_embed[:, :2, :].detach(), new_pos_embed], dim=1))
 
     def get_shape(self, fstride, tstride, input_fdim=128, input_tdim=1024):
         test_input = torch.randn(1, 1, input_fdim, input_tdim)
