@@ -54,7 +54,7 @@ class ASTModel(nn.Module):
             model_size='base384', 
             verbose=True, 
             backbone_only: bool = False,
-            dropout_p: float = 0.5,
+            dropout_p: float = 0.3,
         ):
 
         super(ASTModel, self).__init__()

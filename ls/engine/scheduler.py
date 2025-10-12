@@ -1,5 +1,5 @@
 import torch.optim as optim
-from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR, ReduceLROnPlateau, CosineAnnealingWarmRestarts
 
 from ls.config.dataclasses.schedulers import SchedulerConfig
 
@@ -17,6 +17,14 @@ def build_scheduler(cfg: SchedulerConfig, epochs: int, optimizer: optim.Optimize
             optimizer,
             T_max=int(epochs),
             eta_min=float(cfg.min_lr),
+        )
+
+    elif cfg.type == "cosine_warm_restarts":
+        return CosineAnnealingWarmRestarts(
+            optimizer, 
+            T_0=int(cfg.T_0), 
+            T_mult=1, 
+            eta_min=float(cfg.min_lr)
         )
 
     # --- Warmup + Cosine decay ---

@@ -14,8 +14,8 @@ from ls.engine.utils import get_device
 
 
 def main_kfold():
-    cfg = load_config("configs/config.yaml")
-    mlflow_cfg = load_config("configs/mlflow.yaml")
+    cfg = load_config("../configs/config.yaml")
+    mlflow_cfg = load_config("../configs/mlflow.yaml")
     MODEL_KEY = "ast"
     device = get_device()
     
