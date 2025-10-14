@@ -19,7 +19,7 @@ def build_scheduler(cfg: SchedulerConfig, epochs: int, optimizer: optim.Optimize
             eta_min=float(cfg.min_lr),
         )
 
-    elif cfg.type == "cosine_warm_restarts":
+    elif cfg.type == "cosine_warmup_restarts":
         return CosineAnnealingWarmRestarts(
             optimizer, 
             T_0=int(cfg.T_0), 

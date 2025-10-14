@@ -9,50 +9,66 @@ from ls.engine.logging_utils import get_or_create_experiment, log_all_params
 
 
 def main_multi_seed(n_seeds: int = 5):
-    """
-    Run the same experiment for multiple random seeds and log each run separately in MLflow.
-    """
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
     MODEL_KEY = "ast"
 
-    # Authenticate MLflow
+    # -------------------------
+    # Explicit MLflow setup
+    # -------------------------
     os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_cfg.tracking_username
     os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_cfg.tracking_password
     mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
+
     experiment_id = get_or_create_experiment(mlflow_cfg.experiment_name)
 
-    base_seed = cfg.seed if hasattr(cfg, "seed") else 42
+    base_seed = getattr(cfg, "seed", 42)
     seed_list = [base_seed + i for i in range(n_seeds)]
 
-    for run_idx, seed in enumerate(seed_list, start=1):
-        print(f"\n==============================")
-        print(f"  Run {run_idx}/{n_seeds}  —  Seed = {seed}")
-        print(f"==============================")
+    # ================================================
+    # PARENT RUN (keeps context for nested=True)
+    # ================================================
+    with mlflow.start_run(
+        experiment_id=experiment_id,
+        run_name=f"{MODEL_KEY}_multi_seed_{n_seeds}runs",
+    ) as parent_run:
 
-        # --- 1. Set seed ---
-        set_seed(seed)
+        mlflow.log_param("n_seeds", n_seeds)
+        mlflow.log_param("base_seed", base_seed)
+        mlflow.log_param("model_key", MODEL_KEY)
 
-        # --- 2. Build data loaders (reinitialized for each seed) ---
-        train_loader, val_loader = build_dataloaders(cfg.dataset, cfg.audio)
+        # store parent run info
+        parent_run_id = parent_run.info.run_id
 
-        # --- 3. Build model fresh each run ---
-        model = build_model(cfg.models, model_key=MODEL_KEY)
-        print(f"Model has {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
+        for run_idx, seed in enumerate(seed_list, start=1):
+            print(f"\n========== Run {run_idx}/{n_seeds} — Seed = {seed} ==========")
+            set_seed(seed)
+            train_loader, val_loader = build_dataloaders(cfg.dataset, cfg.audio)
+            model = build_model(cfg.models, model_key=MODEL_KEY)
 
-        # --- 4. Start MLflow run ---
-        run_name = f"{MODEL_KEY}_seed{seed}_{cfg.training.epochs}ep"
-        with mlflow.start_run(experiment_id=experiment_id, run_name=run_name):
-            mlflow.log_param("seed", seed)
-            mlflow.log_param("model_key", MODEL_KEY)
-            log_all_params(cfg)
+            # -----------------------------------------------
+            # Properly nested sub-run (inherits experiment)
+            # -----------------------------------------------
+            with mlflow.start_run(
+                experiment_id=experiment_id,
+                run_name=f"{MODEL_KEY}_seed{seed}_{cfg.training.epochs}ep",
+                nested=True,
+            ):
+                mlflow.set_tag("parent_run_id", parent_run_id)
+                # mlflow.log_param("seed", seed)
+                log_all_params(cfg)
 
-            # --- 5. Train ---
-            train_loss, metrics = train_loop(
-                cfg.training, model, train_loader, val_loader=val_loader, test_loader=val_loader
-            )
+                train_loss, metrics = train_loop(
+                    cfg.training,
+                    model,
+                    train_loader,
+                    val_loader=val_loader,
+                    test_loader=val_loader,
+                )
 
-        print(f"[Done] Seed {seed} finished and logged to MLflow")
+            print(f"[Done] Seed {seed} finished and logged to MLflow")
+
+    print("All seeds complete — results stored in MLflow.")
 
 
 if __name__ == "__main__":

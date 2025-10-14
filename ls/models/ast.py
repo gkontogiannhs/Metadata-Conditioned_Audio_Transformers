@@ -48,7 +48,7 @@ class ASTModel(nn.Module):
             tstride=10, 
             input_fdim=128, 
             input_tdim=1024,
-            imagenet_pretrain=True, 
+            imagenet_pretrain=True,
             audioset_pretrain=False,
             audioset_ckpt_path='',
             model_size='base384', 

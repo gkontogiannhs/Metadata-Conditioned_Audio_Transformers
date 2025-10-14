@@ -57,6 +57,7 @@ def build_model(cfg: ModelsConfig, model_key: str = "cnn6") -> nn.Module:
             model_size=getattr(model_cfg, "model_size", "base384"),
             backbone_only=getattr(model_cfg, "backbone_only", False),
             audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
+            dropout_p=getattr(model_cfg, "dropout", 0.0),
         )
 
     # elif name == "resnet18":

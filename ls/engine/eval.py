@@ -12,8 +12,10 @@ def evaluate(model, data_loader, criterion, device):
     with torch.no_grad():
         for batch in data_loader:
             x, y = batch["input_values"].to(device), batch["labels"].to(device)
-            logits = model(x)
-            loss = criterion(logits.float(), y)
+            
+            with torch.amp.autocast():
+                logits = model(x)
+                loss = criterion(logits, y)
 
             probs = torch.softmax(logits, dim=1).detach().cpu().numpy()
             preds = np.argmax(probs, axis=1)

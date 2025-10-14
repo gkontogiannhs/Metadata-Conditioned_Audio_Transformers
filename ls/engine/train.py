@@ -24,6 +24,88 @@ from ls.engine.utils import get_loss
 # Training / Evaluation steps
 # ------------------------------------------------------
 
+# import math 
+# def adjust_learning_rate(optimizer, epoch, cfg): 
+#     """Decay the learning rate with half-cycle cosine after warmup"""
+#     warmup_epochs = int(cfg.scheduler.warmup_epochs)
+#     _lr = float(cfg.optimizer.lr)
+#     min_lr = float(cfg.scheduler.min_lr)
+#     if epoch < warmup_epochs: 
+#         lr = _lr * epoch / warmup_epochs
+#     else:
+#         lr = min_lr + (_lr - min_lr) * 0.5 * \
+#         (1. + math.cos(math.pi * (epoch - warmup_epochs) / (cfg.epochs - warmup_epochs)))
+#         for param_group in optimizer.param_groups: 
+#             if "lr_scale" in param_group: 
+#                 param_group["lr"] = lr * param_group["lr_scale"] 
+#             else: 
+#                 param_group["lr"] = lr 
+#     return lr
+
+# def train_one_epoch(model, dataloader, criterion, optimizer, device, grad_scaler, epoch, cfg):
+#     """
+#     Train model for one epoch with per-iteration LR scheduling.
+#     No logging or printing — return stats for the train_loop to handle.
+#     """
+#     model.train()
+#     total_loss, n_samples = 0.0, 0
+#     all_preds, all_labels, all_probs = [], [], []
+
+#     num_batches = len(dataloader)
+#     accum_iter = 2 # getattr(cfg.training, "accum_iter", 2)
+
+#     optimizer.zero_grad(set_to_none=True)
+
+#     for iter_step, batch in enumerate(tqdm(dataloader, desc=f"[Train][Epoch {epoch}]", leave=False)):
+#         inputs = batch["input_values"].to(device, non_blocking=True)
+#         labels = batch["labels"].to(device, non_blocking=True)
+
+#         # -------------------------
+#         # Per-iteration LR schedule
+#         # -------------------------
+#         global_progress = epoch + iter_step / num_batches  # fractional epoch
+#         if iter_step % accum_iter == 0:
+#             adjust_learning_rate(optimizer, global_progress, cfg)
+
+#         # -------------------------
+#         # Forward + backward
+#         # -------------------------
+#         with torch.amp.autocast(device_type=device.type, dtype=torch.float16):
+#             logits = model(inputs)
+#             loss = criterion(logits, labels) / accum_iter  # scale if accumulating
+
+#         grad_scaler.scale(loss).backward()
+
+#         # Only step every accum_iter iterations
+#         if (iter_step + 1) % accum_iter == 0 or (iter_step + 1 == num_batches):
+#             grad_scaler.step(optimizer)
+#             grad_scaler.update()
+#             optimizer.zero_grad(set_to_none=True)
+
+#         # -------------------------
+#         # Metrics accumulation
+#         # -------------------------
+#         total_loss += loss.item() * inputs.size(0) * accum_iter  # unscale loss
+#         n_samples += inputs.size(0)
+
+#         probs = torch.softmax(logits.detach(), dim=1).cpu().numpy()
+#         preds = np.argmax(probs, axis=1)
+#         all_labels.extend(labels.cpu().numpy())
+#         all_preds.extend(preds)
+#         all_probs.extend(probs)
+
+#     # -------------------------
+#     # Epoch summary
+#     # -------------------------
+#     avg_loss = total_loss / n_samples
+#     n_classes = logits.shape[1]
+#     metrics = compute_classification_metrics(
+#         np.array(all_labels), np.array(all_preds), np.array(all_probs),
+#         n_classes=n_classes
+#     )
+
+#     return avg_loss, metrics
+
 def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, epoch):
     """
     Train model for one epoch and compute full set of classification metrics.
@@ -160,6 +242,7 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
         #     model.module.freeze_backbone(until_block=9)     # unfreeze last 3–4 blocks
         # elif epoch == 30:
         #     model.module.unfreeze_all()
+        # adjust_learning_rate(optimizer, epoch, cfg)
 
         train_loss, train_metrics = train_one_epoch(
             model, train_loader, criterion, optimizer, device, scaler, epoch

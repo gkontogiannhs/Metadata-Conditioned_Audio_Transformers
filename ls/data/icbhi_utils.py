@@ -74,7 +74,7 @@ def get_individual_cycles(
         data -= data.mean()
 
     if audio_cfg.normalize:
-        data = data / data.abs().max()
+        data /= data.abs().max()
 
     # if audio_cfg.use_fade:
     #     fade_len = int(audio_cfg.sample_rate / audio_cfg.fade_samples_ratio)
