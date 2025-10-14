@@ -44,8 +44,8 @@ def build_model(cfg: ModelsConfig, model_key: str = "cnn6") -> nn.Module:
 
     # ---------- AST ----------
     elif model_key == "ast":
-        from ls.models.ast import ASTModel
-
+        from ls.models.mast import ASTModel
+        
         return ASTModel(
             label_dim=getattr(model_cfg, "label_dim", 4),
             fstride=getattr(model_cfg, "fstride", 10),

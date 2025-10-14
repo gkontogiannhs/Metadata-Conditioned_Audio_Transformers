@@ -12,8 +12,8 @@ def evaluate(model, data_loader, criterion, device):
     with torch.no_grad():
         for batch in data_loader:
             x, y = batch["input_values"].to(device), batch["labels"].to(device)
-            
-            with torch.amp.autocast():
+
+            with torch.amp.autocast(device.type):
                 logits = model(x)
                 loss = criterion(logits, y)
 

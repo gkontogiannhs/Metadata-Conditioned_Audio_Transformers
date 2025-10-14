@@ -235,13 +235,24 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
         # TRAIN
         # ------------------------
 
-        # if epoch < 10:
-        #     model.module.freeze_backbone()                  # train only classifier
-        # elif epoch == 10:
-        #     model.module.unfreeze_all()
-        #     model.module.freeze_backbone(until_block=9)     # unfreeze last 3–4 blocks
-        # elif epoch == 30:
-        #     model.module.unfreeze_all()
+        if epoch < 10:
+            try:
+                model.module.freeze_backbone()                  # train only classifier
+            except AttributeError:
+                model.freeze_backbone()
+        elif epoch == 10:
+            try:
+                model.module.unfreeze_all()
+                model.module.freeze_backbone(until_block=9)     # unfreeze last 3–4 blocks
+            except AttributeError:
+                model.unfreeze_all()
+                model.freeze_backbone(until_block=9)
+        elif epoch == 30:
+            try:
+                model.module.unfreeze_all()
+            except AttributeError:
+                model.unfreeze_all()
+
         # adjust_learning_rate(optimizer, epoch, cfg)
 
         train_loss, train_metrics = train_one_epoch(

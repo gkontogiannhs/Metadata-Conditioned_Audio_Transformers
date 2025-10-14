@@ -109,7 +109,7 @@ training:
   alpha: 0.25
   gamma: 2.0
   use_class_weights: false
-  epochs: 100
+  epochs: 200
   kfold_splits: 5
   early_stopping: 15
   grad_clip: 1.0
