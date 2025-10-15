@@ -42,70 +42,6 @@ from ls.engine.utils import get_loss
 #                 param_group["lr"] = lr 
 #     return lr
 
-# def train_one_epoch(model, dataloader, criterion, optimizer, device, grad_scaler, epoch, cfg):
-#     """
-#     Train model for one epoch with per-iteration LR scheduling.
-#     No logging or printing — return stats for the train_loop to handle.
-#     """
-#     model.train()
-#     total_loss, n_samples = 0.0, 0
-#     all_preds, all_labels, all_probs = [], [], []
-
-#     num_batches = len(dataloader)
-#     accum_iter = 2 # getattr(cfg.training, "accum_iter", 2)
-
-#     optimizer.zero_grad(set_to_none=True)
-
-#     for iter_step, batch in enumerate(tqdm(dataloader, desc=f"[Train][Epoch {epoch}]", leave=False)):
-#         inputs = batch["input_values"].to(device, non_blocking=True)
-#         labels = batch["labels"].to(device, non_blocking=True)
-
-#         # -------------------------
-#         # Per-iteration LR schedule
-#         # -------------------------
-#         global_progress = epoch + iter_step / num_batches  # fractional epoch
-#         if iter_step % accum_iter == 0:
-#             adjust_learning_rate(optimizer, global_progress, cfg)
-
-#         # -------------------------
-#         # Forward + backward
-#         # -------------------------
-#         with torch.amp.autocast(device_type=device.type, dtype=torch.float16):
-#             logits = model(inputs)
-#             loss = criterion(logits, labels) / accum_iter  # scale if accumulating
-
-#         grad_scaler.scale(loss).backward()
-
-#         # Only step every accum_iter iterations
-#         if (iter_step + 1) % accum_iter == 0 or (iter_step + 1 == num_batches):
-#             grad_scaler.step(optimizer)
-#             grad_scaler.update()
-#             optimizer.zero_grad(set_to_none=True)
-
-#         # -------------------------
-#         # Metrics accumulation
-#         # -------------------------
-#         total_loss += loss.item() * inputs.size(0) * accum_iter  # unscale loss
-#         n_samples += inputs.size(0)
-
-#         probs = torch.softmax(logits.detach(), dim=1).cpu().numpy()
-#         preds = np.argmax(probs, axis=1)
-#         all_labels.extend(labels.cpu().numpy())
-#         all_preds.extend(preds)
-#         all_probs.extend(probs)
-
-#     # -------------------------
-#     # Epoch summary
-#     # -------------------------
-#     avg_loss = total_loss / n_samples
-#     n_classes = logits.shape[1]
-#     metrics = compute_classification_metrics(
-#         np.array(all_labels), np.array(all_preds), np.array(all_probs),
-#         n_classes=n_classes
-#     )
-
-#     return avg_loss, metrics
-
 def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, epoch):
     """
     Train model for one epoch and compute full set of classification metrics.
@@ -197,16 +133,30 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
 
     # Setup training components
     if getattr(cfg, "use_class_weights", False):
-        labels = np.array([s['label'] for s  in train_loader.dataset.samples])
-        n_classes = len(train_loader.dataset.class_counts)
-        weights = compute_class_weight(
-            class_weight="balanced",
-            classes=np.arange(n_classes),
-            y=labels
-        )
-        print(f"Using computed class weights: {weights}", weights.dtype)
-        weights = weights / weights.sum() # normalize to sum to 1
-        class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
+        class_counts = train_loader.dataset.class_counts
+        print(f"Class counts: {class_counts}")
+        total = sum(class_counts)
+        print(f"Total samples: {total}")
+        class_weights = torch.tensor([total/count for count in class_counts])
+        print(f"Initial alpha (inverse freq): {class_weights}")
+        # Normalize to 1 and scale by the factor of length
+        class_weights = class_weights / class_weights.sum() * len(class_weights)
+        print(f"Normalized alpha (sum to num classes): {class_weights}")
+        # total = sum(class_counts)
+        # class_weights = [total/count for count in class_counts]
+        # # Normalize to 1 and scale to number of classes
+        # class_weights /= class_weights.sum() * len(class_weights)
+        # print(f"[INFO] Using dynamically computed class weights: {class_weights}")
+        # # labels = np.array([s['label'] for s  in train_loader.dataset.samples])
+        # n_classes = len(train_loader.dataset.class_counts)
+        # weights = compute_class_weight(
+        #     class_weight="balanced",
+        #     classes=np.arange(n_classes),
+        #     y=labels
+        # )
+        # print(f"Using computed class weights: {weights}", weights.dtype)
+        # weights = weights / weights.sum() # normalize to sum to 1
+        # class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
     else:
         class_weights = None
     criterion = get_loss(cfg, device, class_weights)
@@ -235,23 +185,23 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
         # TRAIN
         # ------------------------
 
-        if epoch < 10:
-            try:
-                model.module.freeze_backbone()                  # train only classifier
-            except AttributeError:
-                model.freeze_backbone()
-        elif epoch == 10:
-            try:
-                model.module.unfreeze_all()
-                model.module.freeze_backbone(until_block=9)     # unfreeze last 3–4 blocks
-            except AttributeError:
-                model.unfreeze_all()
-                model.freeze_backbone(until_block=9)
-        elif epoch == 30:
-            try:
-                model.module.unfreeze_all()
-            except AttributeError:
-                model.unfreeze_all()
+        # if epoch < 10:
+        #     try:
+        #         model.module.freeze_backbone()                  # train only classifier
+        #     except AttributeError:
+        #         model.freeze_backbone()
+        # elif epoch == 10:
+        #     try:
+        #         model.module.unfreeze_all()
+        #         model.module.freeze_backbone(until_block=9)     # unfreeze last 3–4 blocks
+        #     except AttributeError:
+        #         model.unfreeze_all()
+        #         model.freeze_backbone(until_block=9)
+        # elif epoch == 40:
+        #     try:
+        #         model.module.unfreeze_all()
+        #     except AttributeError:
+        #         model.unfreeze_all()
 
         # adjust_learning_rate(optimizer, epoch, cfg)
 

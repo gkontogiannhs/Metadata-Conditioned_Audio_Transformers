@@ -2,7 +2,6 @@ import torch
 import random
 import numpy as np
 import torch.nn as nn
-# from focal_loss import FocalLoss
 from ls.config.dataclasses import TrainingConfig
 
 
@@ -87,28 +86,28 @@ class FocalLoss(nn.Module):
 
     def multi_class_focal_loss(self, inputs, targets):
         """ Focal loss for multi-class classification. """
-        # Convert logits to probabilities
+        if self.alpha is not None:
+            alpha = self.alpha.to(inputs.device)
+
+        # Convert logits to probabilities with softmax
         probs = F.softmax(inputs, dim=1)
+
+        # One-hot encode the targets
         targets_one_hot = F.one_hot(targets, num_classes=self.num_classes).float()
 
-        # Base cross-entropy
-        ce_loss = -targets_one_hot * torch.log(probs + 1e-12)
+        # Compute cross-entropy for each class
+        ce_loss = -targets_one_hot * torch.log(probs)
 
-        # p_t for each sample
-        p_t = torch.sum(probs * targets_one_hot, dim=1)
+        # Compute focal weight
+        p_t = torch.sum(probs * targets_one_hot, dim=1)  # p_t for each sample
         focal_weight = (1 - p_t) ** self.gamma
 
-        # Handle alpha (scalar or per-class)
+        # Apply alpha if provided (per-class weighting)
         if self.alpha is not None:
-            if isinstance(self.alpha, (float, int)):
-                alpha_t = torch.full_like(targets, fill_value=self.alpha, dtype=inputs.dtype, device=inputs.device)
-            elif isinstance(self.alpha, (list, torch.Tensor)):
-                alpha_tensor = torch.tensor(self.alpha, dtype=inputs.dtype, device=inputs.device)
-                alpha_t = alpha_tensor.gather(0, targets)
-            else:
-                raise TypeError("alpha must be float, list, or torch.Tensor")
+            alpha_t = alpha.gather(0, targets)
             ce_loss = alpha_t.unsqueeze(1) * ce_loss
 
+        # Apply focal loss weight
         loss = focal_weight.unsqueeze(1) * ce_loss
 
         if self.reduction == 'mean':
@@ -141,7 +140,8 @@ class FocalLoss(nn.Module):
         elif self.reduction == 'sum':
             return loss.sum()
         return loss
-    
+
+
 def set_seed(seed: int = 42, deterministic: bool = True, verbose: bool = True):
     """
     Fix random seeds for reproducibility across NumPy, Python, and PyTorch.
@@ -234,15 +234,15 @@ def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Ten
     elif loss_type == "weighted_ce":
         # Priority: dynamically computed weights > static config weights
         if class_weights is not None:
-            class_weights = class_weights.to(device)
+            # class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
             print(f"[INFO] Using dynamically computed class weights: {class_weights.cpu().numpy().round(3).tolist()}")
-        elif hasattr(cfg.loss, "class_weights") and len(cfg.loss.class_weights) > 0:
-            class_weights = torch.tensor(cfg.loss.class_weights, dtype=torch.float32).to(device)
+        elif hasattr(cfg, "class_weights") and len(cfg.class_weights) > 0:
+            class_weights = torch.tensor(cfg.class_weights, dtype=torch.float32).to(device)
             print(f"[INFO] Using static class weights from config: {class_weights.cpu().numpy().round(3).tolist()}")
         else:
             raise ValueError(
                 "Weighted CE loss selected but no class weights provided. "
-                "Either compute them dynamically or specify cfg.loss.class_weights."
+                "Either compute them dynamically or specify cfg.class_weights."
             )
         return nn.CrossEntropyLoss(weight=class_weights).to(device)
 
@@ -251,12 +251,16 @@ def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Ten
     # -------------------------------
     elif loss_type == "focal":
         gamma = float(getattr(cfg, "gamma", 2.0))
-        alpha = float(getattr(cfg, "alpha", None))
+        # alpha = float(getattr(cfg, "alpha", None))
+        if class_weights is not None:
+            print(f"[INFO] Using dynamically computed class weights for Focal Loss: {class_weights.cpu().numpy().round(3).tolist()}")
+        else:
+            class_weights = torch.tensor([0.25] * 4, dtype=torch.float32).to(device)
         num_classes = getattr(cfg, "n_cls", None)
 
         return FocalLoss(
             gamma=gamma,
-            alpha=alpha,
+            alpha=class_weights,
             num_classes=num_classes,
             task_type="multi-class",
         ).to(device)
