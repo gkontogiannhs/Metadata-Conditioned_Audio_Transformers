@@ -3,11 +3,9 @@
 import torch
 import torch.nn as nn
 import os
-from timm.models.layers import to_2tuple,trunc_normal_
+from timm.models.layers import to_2tuple, trunc_normal_
 import timm
-from ls.engine.utils import get_device
 
-# DEVICE = get_device(0)
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 
 # override the timm package to relax the input shape constraint.
@@ -38,8 +36,11 @@ class ASTModel(nn.Module):
     :param input_tdim: the number of time frames of the input spectrogram
     :param imagenet_pretrain: if use ImageNet pretrained model
     :param audioset_pretrain: if use full AudioSet and ImageNet pretrained model
-    :param model_size: the model size of AST, should be in [tiny224, small224, base224, base384], base224 and base 384 are same model, but are trained differently during ImageNet pretraining.
-    :param backbone_only: if True, do not create classification head and expose forward_features method for backbone output only.
+    :param audioset_ckpt_path: path to AudioSet pretrained checkpoint
+    :param model_size: the model size of AST, should be in [tiny224, small224, base224, base384]
+    :param verbose: print model summary
+    :param backbone_only: if True, do not create classification head
+    :param dropout_p: dropout probability for regularization
     """
     def __init__(
             self, 
@@ -53,8 +54,8 @@ class ASTModel(nn.Module):
             audioset_ckpt_path='',
             model_size='base384', 
             verbose=True, 
-            backbone_only: bool = False,
-            dropout_p: float = 0.3,
+            backbone_only=False,
+            dropout_p=0.3,
         ):
 
         super(ASTModel, self).__init__()
@@ -63,9 +64,11 @@ class ASTModel(nn.Module):
         if verbose == True:
             print('---------------AST Model Summary---------------')
             print('ImageNet pretraining: {:s}, AudioSet pretraining: {:s}'.format(str(imagenet_pretrain),str(audioset_pretrain)))
+        
         # override timm input shape restriction
         timm.models.vision_transformer.PatchEmbed = PatchEmbed
         self.reg_dropout = nn.Dropout(dropout_p)
+        
         # if AudioSet pretraining is not used (but ImageNet pretraining may still apply)
         if audioset_pretrain == False:
             if model_size == 'tiny224':
@@ -78,22 +81,28 @@ class ASTModel(nn.Module):
                 self.v = timm.create_model('vit_deit_base_distilled_patch16_384', pretrained=imagenet_pretrain)
             else:
                 raise Exception('Model size must be one of tiny224, small224, base224, base384.')
-            print('Vision transformer model size {:s} created.'.format(model_size))
+            
+            if verbose:
+                print('Vision transformer model size {:s} created.'.format(model_size))
+            
             self.original_num_patches = self.v.patch_embed.num_patches
             self.oringal_hw = int(self.original_num_patches ** 0.5)
             self.original_embedding_dim = self.v.pos_embed.shape[2]
 
             self.mlp_head = None
-
             if not backbone_only:
-                self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
+                self.mlp_head = nn.Sequential(
+                    nn.LayerNorm(self.original_embedding_dim), 
+                    self.reg_dropout, 
+                    nn.Linear(self.original_embedding_dim, label_dim)
+                )
 
             # automatcially get the intermediate shape
             f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
             num_patches = f_dim * t_dim
             self.v.patch_embed.num_patches = num_patches
             if verbose == True:
-                print('frequncey stride={:d}, time stride={:d}'.format(fstride, tstride))
+                print('frequency stride={:d}, time stride={:d}'.format(fstride, tstride))
                 print('number of patches={:d}'.format(num_patches))
 
             # the linear projection layer
@@ -127,145 +136,103 @@ class ASTModel(nn.Module):
                 new_pos_embed = nn.Parameter(torch.zeros(1, self.v.patch_embed.num_patches + 2, self.original_embedding_dim))
                 self.v.pos_embed = new_pos_embed
                 trunc_normal_(self.v.pos_embed, std=.02)
-                
-        # ================================================================
-        #  Pretrained on AudioSet + ImageNet
-        # ================================================================
+
+        # now load a model that is pretrained on both ImageNet and AudioSet
         elif audioset_pretrain == True:
-            if audioset_pretrain and not imagenet_pretrain:
-                raise ValueError(
-                    "Model pretrained only on AudioSet is not supported; "
-                    "set imagenet_pretrain=True as well."
-                )
-            if model_size != "base384":
-                raise ValueError("Only base384 AudioSet pretrained model is available.")
-
+            if audioset_pretrain == True and imagenet_pretrain == False:
+                raise ValueError('currently model pretrained on only audioset is not supported, please set imagenet_pretrain = True to use audioset pretrained model.')
+            if model_size != 'base384':
+                raise ValueError('currently only has base384 AudioSet pretrained model.')
+            
             if not os.path.exists(audioset_ckpt_path):
-                raise FileNotFoundError(
-                    f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'."
-                )
-            print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
-
-            # ------------------------------------------------------------
-            # Load the pretrained AudioSet weights into a temporary model
-            # ------------------------------------------------------------
+                raise FileNotFoundError(f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'.")
+            
+            if verbose:
+                print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
+            
+            # Load checkpoint
             sd = torch.load(audioset_ckpt_path, map_location=DEVICE)
+            
+            # Create temporary model to load AudioSet weights
             audio_model = ASTModel(
-                label_dim=527,
-                fstride=10,
-                tstride=10,
-                input_fdim=128,
-                input_tdim=1024,
-                imagenet_pretrain=False,
-                audioset_pretrain=False,
-                model_size="base384",
-                verbose=False,
+                label_dim=527, 
+                fstride=10, 
+                tstride=10, 
+                input_fdim=128, 
+                input_tdim=1024, 
+                imagenet_pretrain=False, 
+                audioset_pretrain=False, 
+                model_size='base384', 
+                verbose=False
             )
-            audio_model.load_state_dict(sd, strict=False)
+            
+            # Handle different checkpoint formats (with or without DataParallel)
+            model_dict = audio_model.state_dict()
+            pretrained_dict = {}
+            
+            for k, v in sd.items():
+                # Remove various prefixes
+                if k.startswith('module.'):
+                    key = k[7:]  # Remove 'module.' prefix (DataParallel)
+                else:
+                    key = k
+                
+                # Keep trained weights only for the vision transformer backbone
+                # Skip mlp_head weights since dimensions differ
+                if key in model_dict:
+                    if model_dict[key].shape == v.shape:
+                        pretrained_dict[key] = v
+                    elif verbose:
+                        print(f"Shape mismatch for {key}: model={model_dict[key].shape}, ckpt={v.shape}")
+                print("No mismatch for key:", key) if verbose else None
+                print("No mlp_head weights loaded from AudioSet checkpoint.") if verbose else None
+            if len(pretrained_dict) > 0:
+                model_dict.update(pretrained_dict)
+                audio_model.load_state_dict(model_dict)
+                if verbose:
+                    print(f"Loaded {len(pretrained_dict)}/{len(model_dict)} tensors from AudioSet checkpoint")
+                    print(f"The remaining {len(model_dict) - len(pretrained_dict)} tensors are randomly initialized and will be trained from scratch.")
+            else:
+                raise RuntimeError("No matching weights found in checkpoint!")
+            
+            # Extract the vision transformer backbone
             self.v = audio_model.v
+            self.original_num_patches = self.v.patch_embed.num_patches
+            self.oringal_hw = int(self.original_num_patches ** 0.5)
             self.original_embedding_dim = self.v.pos_embed.shape[2]
-
-            # ------------------------------------------------------------
-            # Classification head
-            # ------------------------------------------------------------
+            
+            # Create new classification head for your task
+            self.mlp_head = None
             if not backbone_only:
                 self.mlp_head = nn.Sequential(
-                    nn.LayerNorm(self.original_embedding_dim),
-                    self.reg_dropout,
-                    nn.Linear(self.original_embedding_dim, label_dim),
+                    nn.LayerNorm(self.original_embedding_dim), 
+                    self.reg_dropout, 
+                    nn.Linear(self.original_embedding_dim, label_dim)
                 )
 
-            # ------------------------------------------------------------
-            # Compute patch grid and patch embed projection
-            # ------------------------------------------------------------
+            # Get patch dimensions for your input
             f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
             num_patches = f_dim * t_dim
             self.v.patch_embed.num_patches = num_patches
-            if verbose:
-                print(f"frequency stride={fstride}, time stride={tstride}")
-                print(f"number of patches={num_patches}")
+            if verbose == True:
+                print('frequency stride={:d}, time stride={:d}'.format(fstride, tstride))
+                print('number of patches={:d}'.format(num_patches))
 
-            # ------------------------------------------------------------
-            # Adapt positional embedding automatically
-            # ------------------------------------------------------------
-            with torch.no_grad():
-                # Original AudioSet grid: 12 (freq) × 101 (time)
-                orig_f_dim, orig_t_dim = 12, 101
-                pos_embed = self.v.pos_embed[:, 2:, :].detach()
-                pos_embed = pos_embed.reshape(
-                    1, self.original_embedding_dim, orig_f_dim, orig_t_dim
-                )
-
-                # Interpolate to match the new patch grid
-                pos_embed_interp = torch.nn.functional.interpolate(
-                    pos_embed, size=(f_dim, t_dim), mode="bilinear", align_corners=False
-                )
-
-                # Flatten back to sequence form
-                pos_embed_interp = (
-                    pos_embed_interp.reshape(1, self.original_embedding_dim, -1)
-                    .transpose(1, 2)
-                    .contiguous()
-                )
-
-                # Reattach CLS + distillation tokens
-                self.v.pos_embed = nn.Parameter(
-                    torch.cat([self.v.pos_embed[:, :2, :].detach(), pos_embed_interp], dim=1)
-                )
-
-            # ------------------------------------------------------------
-            # Adjust patch projection if input stride differs
-            # ------------------------------------------------------------
-            new_proj = torch.nn.Conv2d(
-                1, self.original_embedding_dim, kernel_size=(16, 16),
-                stride=(fstride, tstride)
-            )
-            new_proj.weight = torch.nn.Parameter(
-                torch.sum(self.v.patch_embed.proj.weight, dim=1).unsqueeze(1)
-            )
-            new_proj.bias = self.v.patch_embed.proj.bias
-            self.v.patch_embed.proj = new_proj
-        # # now load a model that is pretrained on both ImageNet and AudioSet
-        # elif audioset_pretrain == True:
-        #     if audioset_pretrain == True and imagenet_pretrain == False:
-        #         raise ValueError('currently model pretrained on only audioset is not supported, please set imagenet_pretrain = True to use audioset pretrained model.')
-        #     if model_size != 'base384':
-        #         raise ValueError('currently only has base384 AudioSet pretrained model.')
-
-        #     if not os.path.exists(audioset_ckpt_path):
-        #         raise FileNotFoundError(f"Pretrained AudioSet model not found at '{audioset_ckpt_path}'. Please download it manually.")
-        #     print(f"Loading AudioSet pretrained model from {audioset_ckpt_path}")
-        #     sd = torch.load(audioset_ckpt_path, map_location=DEVICE)
-        #     audio_model = ASTModel(label_dim=527, fstride=10, tstride=10, input_fdim=128, input_tdim=1024, imagenet_pretrain=False, audioset_pretrain=False, model_size='base384', verbose=False)
-        #     # audio_model = torch.nn.DataParallel(audio_model)
-        #     audio_model.load_state_dict(sd, strict=False)
-        #     # self.v = audio_model.module.v
-        #     self.v = audio_model.v
-        #     self.original_embedding_dim = self.v.pos_embed.shape[2]
-        #     if not backbone_only:
-        #         self.mlp_head = nn.Sequential(nn.LayerNorm(self.original_embedding_dim), self.reg_dropout, nn.Linear(self.original_embedding_dim, label_dim))
-
-        #     f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)
-        #     num_patches = f_dim * t_dim
-        #     self.v.patch_embed.num_patches = num_patches
-        #     if verbose == True:
-        #         print('frequncey stride={:d}, time stride={:d}'.format(fstride, tstride))
-        #         print('number of patches={:d}'.format(num_patches))
-
-        #     new_pos_embed = self.v.pos_embed[:, 2:, :].detach().reshape(1, 1212, 768).transpose(1, 2).reshape(1, 768, 12, 101)
-        #     # if the input sequence length is larger than the original audioset (10s), then cut the positional embedding
-        #     if t_dim < 101:
-        #         new_pos_embed = new_pos_embed[:, :, :, 50 - int(t_dim/2): 50 - int(t_dim/2) + t_dim]
-        #     # otherwise interpolate
-        #     else:
-        #         new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(12, t_dim), mode='bilinear')
-        #     if f_dim < 12:
-        #         new_pos_embed = new_pos_embed[:, :, 6 - int(f_dim/2): 6 - int(f_dim/2) + f_dim, :]
-        #     # otherwise interpolate
-        #     elif f_dim > 12:
-        #         new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(f_dim, t_dim), mode='bilinear')
-        #     new_pos_embed = new_pos_embed.reshape(1, 768, num_patches).transpose(1, 2)
-        #     self.v.pos_embed = nn.Parameter(torch.cat([self.v.pos_embed[:, :2, :].detach(), new_pos_embed], dim=1))
+            # Adapt positional embeddings from AudioSet (12x101) to your dimensions
+            new_pos_embed = self.v.pos_embed[:, 2:, :].detach().reshape(1, 1212, 768).transpose(1, 2).reshape(1, 768, 12, 101)
+            # if the input sequence length is larger than the original audioset (10s), then cut the positional embedding
+            if t_dim < 101:
+                new_pos_embed = new_pos_embed[:, :, :, 50 - int(t_dim/2): 50 - int(t_dim/2) + t_dim]
+            # otherwise interpolate
+            else:
+                new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(12, t_dim), mode='bilinear')
+            if f_dim < 12:
+                new_pos_embed = new_pos_embed[:, :, 6 - int(f_dim/2): 6 - int(f_dim/2) + f_dim, :]
+            # otherwise interpolate
+            elif f_dim > 12:
+                new_pos_embed = torch.nn.functional.interpolate(new_pos_embed, size=(f_dim, t_dim), mode='bilinear')
+            new_pos_embed = new_pos_embed.reshape(1, 768, num_patches).transpose(1, 2)
+            self.v.pos_embed = nn.Parameter(torch.cat([self.v.pos_embed[:, :2, :].detach(), new_pos_embed], dim=1))
 
     def get_shape(self, fstride, tstride, input_fdim=128, input_tdim=1024):
         test_input = torch.randn(1, 1, input_fdim, input_tdim)
@@ -277,7 +244,9 @@ class ASTModel(nn.Module):
 
     def forward_features(self, x):
         """
-        Expects input x shape: (B, 1, F, T), e.g., (12, 1, 128, 1024)
+        Extract features from the backbone.
+        :param x: input spectrogram, shape (B, 1, F, T)
+        :return: feature embeddings
         """
         B = x.shape[0]
         x = self.v.patch_embed(x)
@@ -287,7 +256,6 @@ class ASTModel(nn.Module):
         x = x + self.v.pos_embed
         x = self.v.pos_drop(x)
 
-        # 🔹 Transformer encoder blocks
         for blk in self.v.blocks:
             x = blk(x)
 
@@ -298,9 +266,16 @@ class ASTModel(nn.Module):
     @torch.amp.autocast(device_type=DEVICE.type)
     def forward(self, x):
         """
-        :param x: spectrogram (B, 1, F, T)
+        :param x: input spectrogram
+                  Can be either (B, T, F) [original format] or (B, 1, F, T) [preprocessed]
         :return: prediction logits or features if backbone_only
         """
+        # Handle both input formats
+        if x.dim() == 3:  # (B, T, F) - original format
+            x = x.unsqueeze(1)  # (B, 1, T, F)
+            x = x.transpose(2, 3)  # (B, 1, F, T)
+        
+        # Now x is (B, 1, F, T)
         x = self.forward_features(x)
 
         if self.mlp_head is not None:
@@ -310,14 +285,25 @@ class ASTModel(nn.Module):
     
     def freeze_backbone(self, until_block=None):
         """
-        Freezes all transformer blocks up to (and including) 'until_block'.
-        Pass None to freeze all.
+        Freeze transformer blocks for fine-tuning.
+        :param until_block: freeze blocks up to and including this index (None = freeze all)
         """
+        # Freeze patch embedding
+        for p in self.v.patch_embed.parameters():
+            p.requires_grad = False
+        
+        # Freeze positional embeddings
+        self.v.pos_embed.requires_grad = False
+        self.v.cls_token.requires_grad = False
+        self.v.dist_token.requires_grad = False
+        
+        # Freeze transformer blocks
         for i, blk in enumerate(self.v.blocks):
             if until_block is None or i <= until_block:
                 for p in blk.parameters():
                     p.requires_grad = False
 
     def unfreeze_all(self):
-        for p in self.v.parameters():
+        """Unfreeze all parameters."""
+        for p in self.parameters():
             p.requires_grad = True
