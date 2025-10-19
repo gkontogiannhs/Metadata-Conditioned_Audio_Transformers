@@ -4,12 +4,14 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
 from typing import Dict, List
+import torch
 
 from ls.data.icbhi_utils import get_annotations, get_individual_cycles
 from ls.data.preprocessing import cut_pad_waveform
 from ls.data.augmentation import build_augmentations
 from ls.data.transforms import generate_fbank
 from ls.config.dataclasses import DatasetConfig, AudioConfig
+from ls.data.icbhi_utils import _convert_4class_to_multilabel
 
 
 class ICBHIDataset(Dataset):
@@ -29,6 +31,7 @@ class ICBHIDataset(Dataset):
         self.transform = transform
         self.mean_std = mean_std
         self.print_info = print_info
+        self.multi_label = dataset_cfg.multi_label
         
         # build augmentation pipelines from config
         self.waveform_augs, self.spec_augs = build_augmentations(audio_cfg) if self.train and self.augment else ([], [])
@@ -174,6 +177,9 @@ class ICBHIDataset(Dataset):
             fbank = generate_fbank(waveform, self.audio_cfg)
             cycle["fbank"] = fbank
 
+            if self.multi_label:
+                cycle["multi_label"] = _convert_4class_to_multilabel(cycle["label"])
+
             samples.append(cycle)
         return samples
     
@@ -188,6 +194,38 @@ class ICBHIDataset(Dataset):
         for a in self.spec_augs:
             no_spec *= (1.0 - safe_p(a))
         return 1.0 - (no_wf * no_spec)
+    
+    def get_sample_weights(self):
+        """
+        Compute per-sample weights dynamically based on current mode.
+        - In multi-class mode → inverse class frequency
+        - In multi-label mode → inverse label frequency
+        """
+        if not self.train:
+            return None
+
+        if not self.multi_label:
+            # Original 4-class weighting
+            class_counts = np.bincount([s["label"] for s in self.samples], minlength=self.dataset_cfg.n_cls)
+            inv_freq = 1.0 / (class_counts + 1e-6)
+            weights = [inv_freq[s["label"]] for s in self.samples]
+            return np.array(weights) / np.sum(weights)
+        else:
+            # Multi-label weighting
+            labels_ml = np.array([s["multi_label"] for s in self.samples])
+            label_freq = labels_ml.sum(axis=0).astype(float)
+            inv_freq = 1.0 / (label_freq + 1e-6)
+            inv_freq = inv_freq / inv_freq.sum()
+
+            sample_weights = []
+            for vec in labels_ml:
+                if vec.sum() == 0:  # Normal
+                    w = min(inv_freq) * 0.5
+                else:
+                    w = np.sum(inv_freq[vec == 1])
+                sample_weights.append(w)
+
+            return np.array(sample_weights) / np.sum(sample_weights)
 
     def __getitem__(self, idx):
         """
@@ -232,12 +270,24 @@ class ICBHIDataset(Dataset):
         if self.transform:
             fbank = self.transform(fbank)
 
-        # Normal training retur
-        return {
-            "input_values": fbank, # .permute(0, 2, 1).squeeze(0),  # (1, F, T) -> (1, T, F) for AST
-            "labels": sample["label"],
-            **sample  # keep metadata (filename, crackle, etc.)
+        out = {
+            "input_values": fbank,   # (1, F, T) -> (1, T, F) for AST
+            "audio": sample["audio"],
+            "filename": sample["filename"],
+            "cycle_index": sample["cycle_index"],
+            "duration": sample["duration"],
+            "start_time": sample["start_time"],
+            "end_time": sample["end_time"],
+            "crackle": sample["crackle"],
+            "wheeze": sample["wheeze"],
         }
+
+        if self.multi_label:
+            out["labels"] = torch.tensor(sample["multi_label"], dtype=torch.float32)
+        else:
+            out["labels"] = sample["label"]
+
+        return out
 
     def __len__(self):
         return len(self.samples)

@@ -98,7 +98,7 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
 
     # === Macro summaries ===
     metrics['f1_macro'] = np.mean([metrics['Crackle_f1'], metrics['Wheeze_f1']])
-    metrics['auc_macro'] = np.mean([metrics['Crackle_auc'], metrics['Wheeze_auc']])
+    # metrics['auc_macro'] = np.mean([metrics['Crackle_auc'], metrics['Wheeze_auc']])
     metrics['accuracy_macro'] = np.mean([metrics['Crackle_accuracy'], metrics['Wheeze_accuracy']])
 
     return metrics
@@ -275,9 +275,9 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
         inputs, labels = batch["input_values"].to(device), batch["labels"].to(device)
 
         # Convert 4-class labels to multi-label if needed
-        labels_multilabel = convert_4class_to_multilabel(labels.cpu().numpy())
-        labels = torch.from_numpy(labels_multilabel).to(device)
-
+        # labels_multilabel = convert_4class_to_multilabel(labels.cpu().numpy())
+        # labels = torch.from_numpy(labels_multilabel).to(device)
+        # print(batch["labels"])
         optimizer.zero_grad()
 
         with torch.amp.autocast(device.type):
@@ -323,8 +323,8 @@ def evaluate(model, dataloader, criterion, device,
             inputs, labels = batch["input_values"].to(device), batch["labels"].to(device)
 
             # Convert 4-class to multi-label if needed
-            labels_multilabel = convert_4class_to_multilabel(labels.cpu().numpy())
-            labels = torch.from_numpy(labels_multilabel).to(device)
+            # labels_multilabel = convert_4class_to_multilabel(labels.cpu().numpy())
+            # labels = torch.from_numpy(labels_multilabel).to(device)
 
             with torch.amp.autocast(device.type):
                 logits = model(inputs)
@@ -451,12 +451,15 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
             mlflow.log_metric(f"{prefix}_loss", val_loss, step=epoch)
             for k, v in val_metrics.items():
                 mlflow.log_metric(f"{prefix}_{k}", v, step=epoch)
+            # overide val-icbhi score
+            mlflow.log_metric(f"{prefix}_icbhi_score", val_metrics['icbhi_score'])
             
             print(f"[{prefix}][Epoch {epoch}] "
                   f"Loss={val_loss:.4f} | "
                   f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.2f}/{val_metrics['Normal_specificity']:.2f} | "
                   f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.2f}/{val_metrics['Crackle_specificity']:.2f} | "
                   f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.2f}/{val_metrics['Wheeze_specificity']:.2f} | "
+                  f"Both(Se/Sp)={val_metrics['Both_sensitivity']:.2f}/{val_metrics['Both_specificity']:.2f} | "
                   f"Sensitivity={val_metrics['sensitivity']:.2f}/Specificity={val_metrics['specificity']:.2f} | "
                   f"ICBHI={val_metrics['icbhi_score']:.2f}")
             

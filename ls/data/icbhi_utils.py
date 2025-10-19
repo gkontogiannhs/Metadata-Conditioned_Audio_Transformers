@@ -140,3 +140,14 @@ def _get_diagnosis_label(disease: str, n_cls: int) -> int:
     elif n_cls == 2:
         return 0 if disease == "Healthy" else 1
     raise ValueError(f"Unsupported n_cls: {n_cls}")
+
+
+def _convert_4class_to_multilabel(label: int) -> List[int]:
+    """Map 4-class integer (0–3) to 2D binary multi-label [crackle, wheeze]."""
+    mapping = {
+        0: [0, 0],  # Normal
+        1: [1, 0],  # Crackle
+        2: [0, 1],  # Wheeze
+        3: [1, 1],  # Both
+    }
+    return mapping.get(int(label), [0, 0])
