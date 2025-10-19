@@ -208,6 +208,40 @@ def get_device(device_id: int = 0, verbose: bool = True) -> torch.device:
 
     return device
 
+def multilabel_icbhi_loss(logits, targets, lambda_joint=0.1, gamma=1.5):
+    """
+    BCEWithLogits + joint-consistency + optional focal weighting.
+    Safe for autocast mixed precision.
+    logits: (B, 2)
+    targets: (B, 2)
+    """
+    # ---- Base BCE (logits version) ----
+    bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+
+    # ---- Focal scaling ----
+    pt = torch.exp(-bce_loss)
+    focal_loss = ((1 - pt) ** gamma) * bce_loss
+    focal_loss = focal_loss.mean()
+
+    # ---- Joint consistency term ----
+    # Work directly on probabilities for interpretability
+    probs = torch.sigmoid(logits)
+    y_both = (targets[:, 0] * targets[:, 1]).unsqueeze(1)  # (B, 1)
+    p_both = (probs[:, 0] * probs[:, 1]).unsqueeze(1)
+
+    # Still safe — use _with_logits form for consistency
+    # Convert p_both back to logits for stability:
+    eps = 1e-7
+    p_both_clamped = torch.clamp(p_both, eps, 1 - eps)
+    logits_both = torch.log(p_both_clamped / (1 - p_both_clamped))
+
+    joint_loss = F.binary_cross_entropy_with_logits(logits_both, y_both)
+
+    # ---- Combine ----
+    total_loss = focal_loss + lambda_joint * joint_loss
+    return total_loss
+
+
 def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Tensor = None):
     """
     Return loss function based on config and optional per-fold class weights.
@@ -264,6 +298,12 @@ def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Ten
             num_classes=num_classes,
             task_type="multi-class",
         ).to(device)
+
+    # ------ multi-label loss
+    elif loss_type == "multi-label-bce":
+        return nn.BCEWithLogitsLoss().to(device)
+    elif loss_type == "multi-label-icbhi":
+        return
 
     # -------------------------------
     # 4) Unknown loss

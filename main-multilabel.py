@@ -14,48 +14,38 @@ import math
 import os
 import mlflow
 from tqdm import tqdm
-from sklearn.metrics import (
-    accuracy_score, balanced_accuracy_score, f1_score,
-    roc_auc_score, roc_curve, auc, confusion_matrix,
-    hamming_loss, jaccard_score
-)
+from ls.engine.utils import get_device
+from ls.config.dataclasses import TrainingConfig
+from ls.engine.scheduler import build_scheduler
+import numpy as np
+
+
+def set_visible_gpus(gpus: str, verbose: bool = True):
+    """
+    Restrict which GPUs PyTorch can see by setting CUDA_VISIBLE_DEVICES.
+
+    Args:
+        gpus (str): Comma-separated GPU indices, e.g., "0,1,2,3".
+        verbose (bool): If True, print the selection info.
+    """
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+    if verbose:
+        print(f"[CUDA] Visible devices set to: {gpus}")
+
+    # Optional sanity check after setting
+    torch.cuda.device_count()  # forces CUDA to reinitialize
 
 
 def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
     """
     Compute detailed multi-label metrics + official ICBHI metrics.
-
-    Official equations follow:
-        SPE = Pn / Nn
-        SEN = (Pc + Pw + Pb) / (Nc + Nw + Nb)
-        ICBHI = 0.5 * (SPE + SEN)
+    Now includes Sensitivity/Specificity for Normal and Both composite classes.
     """
     metrics = {}
-    metrics['hamming_loss'] = hamming_loss(all_labels, all_preds)
-    metrics['jaccard_score'] = jaccard_score(all_labels, all_preds, average='samples')
-    metrics['subset_accuracy'] = np.mean(np.all(all_labels == all_preds, axis=1))
+    # metrics['hamming_loss'] = hamming_loss(all_labels, all_preds)
+    # metrics['jaccard_score'] = jaccard_score(all_labels, all_preds, average='samples')
 
-    label_names = ['Crackles', 'Wheezes']
-    for label_idx, label_name in enumerate(label_names):
-        y_true = all_labels[:, label_idx]
-        y_pred = all_preds[:, label_idx]
-        y_prob = all_probs[:, label_idx]
-
-        tp = np.sum((y_pred == 1) & (y_true == 1))
-        fn = np.sum((y_pred == 0) & (y_true == 1))
-        tn = np.sum((y_pred == 0) & (y_true == 0))
-        fp = np.sum((y_pred == 1) & (y_true == 0))
-
-        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-
-        metrics[f'{label_name}_sensitivity'] = sensitivity
-        metrics[f'{label_name}_specificity'] = specificity
-        metrics[f'{label_name}_f1'] = f1_score(y_true, y_pred, zero_division=0)
-        metrics[f'{label_name}_auc'] = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.0
-        metrics[f'{label_name}_accuracy'] = accuracy_score(y_true, y_pred)
-
-    # Official ICBHI (exact-match per 4-class pattern)
+    # === Composite 4-class masks ===
     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
     is_c = (all_labels[:,0]==1) & (all_labels[:,1]==0)
     is_w = (all_labels[:,0]==0) & (all_labels[:,1]==1)
@@ -66,44 +56,136 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
     pr_w = (all_preds[:,0]==0) & (all_preds[:,1]==1)
     pr_b = (all_preds[:,0]==1) & (all_preds[:,1]==1)
 
+    # === Counts ===
     Nn, Nc, Nw, Nb = is_n.sum(), is_c.sum(), is_w.sum(), is_b.sum()
     Pn = np.sum(is_n & pr_n)
     Pc = np.sum(is_c & pr_c)
     Pw = np.sum(is_w & pr_w)
     Pb = np.sum(is_b & pr_b)
 
+    # === Official ICBHI metrics ===
     sp = Pn / (Nn + 1e-12)
     se = (Pc + Pw + Pb) / (Nc + Nw + Nb + 1e-12)
-    sc = 0.5 * (sp + se)
-
+    hs = 0.5 * (sp + se)
     if verbose:
-        print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={sc*100:.2f}%")
+        print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={hs*100:.2f}%")
+    metrics.update({'specificity': sp, 'sensitivity': se, 'icbhi_score': hs})
 
-    metrics['specificity'] = sp
-    metrics['sensitivity'] = se
-    metrics['icbhi_score'] = sc
+    # === Per-pattern metrics (Normal, Crackle, Wheeze, Both) ===
+    pattern_names = ['Normal', 'Crackle', 'Wheeze', 'Both']
+    is_true = [is_n, is_c, is_w, is_b]
+    is_pred = [pr_n, pr_c, pr_w, pr_b]
 
-    # binary collapse
-    y_true_bin = np.any(all_labels == 1, axis=1).astype(int)
-    y_pred_bin = np.any(all_preds == 1, axis=1).astype(int)
-    tn = np.sum((y_true_bin == 0) & (y_pred_bin == 0))
-    fp = np.sum((y_true_bin == 0) & (y_pred_bin == 1))
-    tp = np.sum((y_true_bin == 1) & (y_pred_bin == 1))
-    fn = np.sum((y_true_bin == 1) & (y_pred_bin == 0))
-    sp_bin = tn / (tn + fp) if (tn + fp) > 0 else 0
-    se_bin = tp / (tp + fn) if (tp + fn) > 0 else 0
-    hs_bin = 0.5 * (sp_bin + se_bin)
+    for name, tmask, pmask in zip(pattern_names, is_true, is_pred):
+        tp = np.sum(tmask & pmask)
+        fp = np.sum(~tmask & pmask)
+        fn = np.sum(tmask & ~pmask)
+        tn = np.sum(~tmask & ~pmask)
 
-    metrics['specificity_binary'] = sp_bin
-    metrics['sensitivity_binary'] = se_bin
-    metrics['icbhi_score_binary'] = hs_bin
+        precision = tp / (tp + fp + 1e-12)
+        recall = tp / (tp + fn + 1e-12)
+        f1 = 2 * precision * recall / (precision + recall + 1e-12)
+        acc = (tp + tn) / (tp + tn + fp + fn + 1e-12)
+        sensitivity_c = recall  # TP / (TP+FN)
+        specificity_c = tn / (tn + fp + 1e-12)
 
-    # Macro summaries
-    metrics['f1_macro'] = np.mean([metrics['Crackles_f1'], metrics['Wheezes_f1']])
-    metrics['auc_macro'] = np.mean([metrics['Crackles_auc'], metrics['Wheezes_auc']])
-    metrics['accuracy_macro'] = np.mean([metrics['Crackles_accuracy'], metrics['Wheezes_accuracy']])
+        metrics[f'{name}_precision'] = precision
+        metrics[f'{name}_recall'] = recall
+        metrics[f'{name}_f1'] = f1
+        metrics[f'{name}_accuracy'] = acc
+        metrics[f'{name}_sensitivity'] = sensitivity_c
+        metrics[f'{name}_specificity'] = specificity_c
+
+    # === Macro summaries ===
+    metrics['f1_macro'] = np.mean([metrics['Crackle_f1'], metrics['Wheeze_f1']])
+    metrics['auc_macro'] = np.mean([metrics['Crackle_auc'], metrics['Wheeze_auc']])
+    metrics['accuracy_macro'] = np.mean([metrics['Crackle_accuracy'], metrics['Wheeze_accuracy']])
 
     return metrics
+
+
+# def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
+#     """
+#     Compute detailed multi-label metrics + official ICBHI metrics.
+
+#     Official equations follow:
+#         SPE = Pn / Nn
+#         SEN = (Pc + Pw + Pb) / (Nc + Nw + Nb)
+#         ICBHI = 0.5 * (SPE + SEN)
+#     """
+#     metrics = {}
+#     metrics['hamming_loss'] = hamming_loss(all_labels, all_preds)
+#     metrics['jaccard_score'] = jaccard_score(all_labels, all_preds, average='samples')
+
+#     label_names = ['Crackles', 'Wheezes']
+#     for label_idx, label_name in enumerate(label_names):
+#         y_true = all_labels[:, label_idx]
+#         y_pred = all_preds[:, label_idx]
+#         y_prob = all_probs[:, label_idx]
+
+#         tp = np.sum((y_pred == 1) & (y_true == 1))
+#         fn = np.sum((y_pred == 0) & (y_true == 1))
+#         tn = np.sum((y_pred == 0) & (y_true == 0))
+#         fp = np.sum((y_pred == 1) & (y_true == 0))
+
+#         sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
+#         specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
+
+#         metrics[f'{label_name}_sensitivity'] = sensitivity
+#         metrics[f'{label_name}_specificity'] = specificity
+#         metrics[f'{label_name}_f1'] = f1_score(y_true, y_pred, zero_division=0)
+#         metrics[f'{label_name}_auc'] = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.0
+#         metrics[f'{label_name}_accuracy'] = accuracy_score(y_true, y_pred)
+
+#     # Official ICBHI (exact-match per 4-class pattern)
+#     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
+#     is_c = (all_labels[:,0]==1) & (all_labels[:,1]==0)
+#     is_w = (all_labels[:,0]==0) & (all_labels[:,1]==1)
+#     is_b = (all_labels[:,0]==1) & (all_labels[:,1]==1)
+
+#     pr_n = (all_preds[:,0]==0) & (all_preds[:,1]==0)
+#     pr_c = (all_preds[:,0]==1) & (all_preds[:,1]==0)
+#     pr_w = (all_preds[:,0]==0) & (all_preds[:,1]==1)
+#     pr_b = (all_preds[:,0]==1) & (all_preds[:,1]==1)
+
+#     Nn, Nc, Nw, Nb = is_n.sum(), is_c.sum(), is_w.sum(), is_b.sum()
+#     Pn = np.sum(is_n & pr_n)
+#     Pc = np.sum(is_c & pr_c)
+#     Pw = np.sum(is_w & pr_w)
+#     Pb = np.sum(is_b & pr_b)
+
+#     sp = Pn / (Nn + 1e-12)
+#     se = (Pc + Pw + Pb) / (Nc + Nw + Nb + 1e-12)
+#     sc = 0.5 * (sp + se)
+
+#     if verbose:
+#         print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={sc*100:.2f}%")
+
+#     metrics['specificity'] = sp
+#     metrics['sensitivity'] = se
+#     metrics['icbhi_score'] = sc
+
+#     # binary collapse
+#     y_true_bin = np.any(all_labels == 1, axis=1).astype(int)
+#     y_pred_bin = np.any(all_preds == 1, axis=1).astype(int)
+#     tn = np.sum((y_true_bin == 0) & (y_pred_bin == 0))
+#     fp = np.sum((y_true_bin == 0) & (y_pred_bin == 1))
+#     tp = np.sum((y_true_bin == 1) & (y_pred_bin == 1))
+#     fn = np.sum((y_true_bin == 1) & (y_pred_bin == 0))
+#     sp_bin = tn / (tn + fp) if (tn + fp) > 0 else 0
+#     se_bin = tp / (tp + fn) if (tp + fn) > 0 else 0
+#     hs_bin = 0.5 * (sp_bin + se_bin)
+
+#     metrics['specificity_binary'] = sp_bin
+#     metrics['sensitivity_binary'] = se_bin
+#     metrics['icbhi_score_binary'] = hs_bin
+
+#     # Macro summaries
+#     metrics['f1_macro'] = np.mean([metrics['Crackles_f1'], metrics['Wheezes_f1']])
+#     metrics['auc_macro'] = np.mean([metrics['Crackles_auc'], metrics['Wheezes_auc']])
+#     metrics['accuracy_macro'] = np.mean([metrics['Crackles_accuracy'], metrics['Wheezes_accuracy']])
+
+#     return metrics
 
 
 def convert_4class_to_multilabel(labels_4class):
@@ -200,8 +282,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 
         with torch.amp.autocast(device.type):
             logits = model(inputs)  # (B, 2)
-            # loss = criterion(logits, labels)  # BCEWithLogitsLoss
-            loss = multilabel_icbhi_loss(logits, labels, lambda_joint=0.1, gamma=2.0)
+            loss = criterion(logits, labels)  # BCEWithLogitsLoss
+            # loss = multilabel_icbhi_loss(logits, labels, lambda_joint=0.1, gamma=2.0)
 
         grdscaler.scale(loss).backward()
         grdscaler.step(optimizer)
@@ -227,7 +309,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 
 
 def evaluate(model, dataloader, criterion, device,
-             thresholds=(0.5, 0.5), tune_thresholds=True, verbose=True):
+             thresholds=(0.5, 0.5), tune_thresholds=False, verbose=True):
     """
     Evaluate model on validation/test set with multi-label metrics.
     If tune_thresholds=True, sweeps thresholds on this set to maximize ICBHI score.
@@ -246,8 +328,8 @@ def evaluate(model, dataloader, criterion, device,
 
             with torch.amp.autocast(device.type):
                 logits = model(inputs)
-                # loss = criterion(logits, labels)
-                loss = multilabel_icbhi_loss(logits, labels, lambda_joint=0.3, gamma=1.5)
+                loss = criterion(logits, labels)
+                # loss = multilabel_icbhi_loss(logits, labels, lambda_joint=0.3, gamma=1.5)
 
             total_loss += loss.item() * inputs.size(0)
             n_samples += inputs.size(0)
@@ -281,64 +363,9 @@ def evaluate(model, dataloader, criterion, device,
     metrics["threshold_wheeze"] = thresholds[1]
     return avg_loss, metrics
 
-def set_visible_gpus(gpus: str, verbose: bool = True):
-    """
-    Restrict which GPUs PyTorch can see by setting CUDA_VISIBLE_DEVICES.
-
-    Args:
-        gpus (str): Comma-separated GPU indices, e.g., "0,1,2,3".
-        verbose (bool): If True, print the selection info.
-    """
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
-    if verbose:
-        print(f"[CUDA] Visible devices set to: {gpus}")
-
-    # Optional sanity check after setting
-    torch.cuda.device_count()  # forces CUDA to reinitialize
-
-from ls.engine.utils import get_device
-from ls.config.dataclasses import TrainingConfig
-from ls.engine.scheduler import build_scheduler
 # ============================================================
 # MAIN TRAINING LOOP
 # ============================================================
-
-import torch
-import torch.nn.functional as F
-
-def multilabel_icbhi_loss(logits, targets, lambda_joint=0.5, gamma=1.5):
-    """
-    BCEWithLogits + joint-consistency + optional focal weighting.
-    Safe for autocast mixed precision.
-    logits: (B, 2)
-    targets: (B, 2)
-    """
-    # ---- Base BCE (logits version) ----
-    bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
-
-    # ---- Focal scaling ----
-    pt = torch.exp(-bce_loss)
-    focal_loss = ((1 - pt) ** gamma) * bce_loss
-    focal_loss = focal_loss.mean()
-
-    # ---- Joint consistency term ----
-    # Work directly on probabilities for interpretability
-    probs = torch.sigmoid(logits)
-    y_both = (targets[:, 0] * targets[:, 1]).unsqueeze(1)  # (B, 1)
-    p_both = (probs[:, 0] * probs[:, 1]).unsqueeze(1)
-
-    # Still safe — use _with_logits form for consistency
-    # Convert p_both back to logits for stability:
-    eps = 1e-7
-    p_both_clamped = torch.clamp(p_both, eps, 1 - eps)
-    logits_both = torch.log(p_both_clamped / (1 - p_both_clamped))
-
-    joint_loss = F.binary_cross_entropy_with_logits(logits_both, y_both)
-
-    # ---- Combine ----
-    total_loss = focal_loss + lambda_joint * joint_loss
-    return total_loss
-
 
 def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """
@@ -367,8 +394,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     # ============================================================
     # For multi-label, we use BCEWithLogitsLoss (combines sigmoid + BCE)
     # No class weights needed (handled per-label)
-    # criterion = nn.BCEWithLogitsLoss()
-    criterion = None
+    criterion = nn.BCEWithLogitsLoss()
     
     # Setup optimizer
     epochs = cfg.epochs
@@ -410,8 +436,10 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         
         print(f"[{prefix}][Epoch {epoch}] "
               f"Loss={train_loss:.4f} | "
-              f"Crackles(Se/Sp)={train_metrics['Crackles_sensitivity']:.2f}/{train_metrics['Crackles_specificity']:.2f} | "
-              f"Wheezes(Se/Sp)={train_metrics['Wheezes_sensitivity']:.2f}/{train_metrics['Wheezes_specificity']:.2f} | "
+              f"Normal(Se/Sp)={train_metrics['Normal_sensitivity']:.2f}/{train_metrics['Normal_specificity']:.2f} | "
+              f"Crackles(Se/Sp)={train_metrics['Crackle_sensitivity']:.2f}/{train_metrics['Crackle_specificity']:.2f} | "
+              f"Wheezes(Se/Sp)={train_metrics['Wheeze_sensitivity']:.2f}/{train_metrics['Wheeze_specificity']:.2f} | "
+              f"Both(Se/Sp)={train_metrics['Both_sensitivity']:.2f}/{train_metrics['Both_specificity']:.2f} | "
               f"Sensitivity={train_metrics['sensitivity']:.2f}/Specificity={train_metrics['specificity']:.2f} | "
               f"ICBHI={train_metrics['icbhi_score']:.2f}")
         
@@ -426,8 +454,9 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
             
             print(f"[{prefix}][Epoch {epoch}] "
                   f"Loss={val_loss:.4f} | "
-                  f"Crackles(Se/Sp)={val_metrics['Crackles_sensitivity']:.2f}/{val_metrics['Crackles_specificity']:.2f} | "
-                  f"Wheezes(Se/Sp)={val_metrics['Wheezes_sensitivity']:.2f}/{val_metrics['Wheezes_specificity']:.2f} | "
+                  f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.2f}/{val_metrics['Normal_specificity']:.2f} | "
+                  f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.2f}/{val_metrics['Crackle_specificity']:.2f} | "
+                  f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.2f}/{val_metrics['Wheeze_specificity']:.2f} | "
                   f"Sensitivity={val_metrics['sensitivity']:.2f}/Specificity={val_metrics['specificity']:.2f} | "
                   f"ICBHI={val_metrics['icbhi_score']:.2f}")
             
@@ -441,10 +470,10 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 
                 ckpt_path = (
                     f"checkpoints/{epoch}_"
-                    f"Crack_Se={val_metrics['Crackles_sensitivity']:.2f}_"
-                    f"Crack_Sp={val_metrics['Crackles_specificity']:.2f}_"
-                    f"Whz_Se={val_metrics['Wheezes_sensitivity']:.2f}_"
-                    f"Whz_Sp={val_metrics['Wheezes_specificity']:.2f}_"
+                    f"Crack_Se={val_metrics['Crackle_sensitivity']:.2f}_"
+                    f"Crack_Sp={val_metrics['Crackle_specificity']:.2f}_"
+                    f"Whz_Se={val_metrics['Wheeze_sensitivity']:.2f}_"
+                    f"Whz_Sp={val_metrics['Wheeze_specificity']:.2f}_"
                     f"Sp={val_metrics['specificity']:.2f}_"
                     f"Se={val_metrics['sensitivity']:.2f}_"
                     f"ICBHI={icbhi:.2f}_"
@@ -453,13 +482,13 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
                 torch.save(best_state_dict, ckpt_path)
                 mlflow.log_artifact(ckpt_path, artifact_path="model_checkpoints")
-                print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi:.2f})")
+                print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi*100:.2f})")
         
         # --- SCHEDULER & WEIGHT DECAY ---
         if scheduler:
             if cfg.scheduler.type == "reduce_on_plateau" and val_loader:
                 metric_name = getattr(cfg.scheduler, "reduce_metric", "icbhi_score")
-                val_metric = val_metrics[metric_name]
+                val_metric = val_metrics[metric_name] if cfg.scheduler.reduce_mode == "max" else val_loss
                 scheduler.step(val_metric)
             else:
                 scheduler.step()
@@ -493,8 +522,10 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         
         print(f"[{prefix}] Final | "
               f"Loss={test_loss:.4f} | "
-              f"Crackles(Se/Sp)={test_metrics['Crackles_sensitivity']:.2f}/{test_metrics['Crackles_specificity']:.2f} | "
-              f"Wheezes(Se/Sp)={test_metrics['Wheezes_sensitivity']:.2f}/{test_metrics['Wheezes_specificity']:.2f} | "
+              f"Normal(Se/Sp)={test_metrics['Normal_sensitivity']:.2f}/{test_metrics['Normal_specificity']:.2f} | "
+              f"Crackles(Se/Sp)={test_metrics['Crackle_sensitivity']:.2f}/{test_metrics['Crackle_specificity']:.2f} | "
+              f"Wheezes(Se/Sp)={test_metrics['Wheeze_sensitivity']:.2f}/{test_metrics['Wheeze_specificity']:.2f} | "
+              f"Both(Se/Sp)={test_metrics['Both_sensitivity']:.2f}/{test_metrics['Both_specificity']:.2f} | "
               f"Sensitivity={test_metrics['sensitivity']:.2f}/Specificity={test_metrics['specificity']:.2f} | "
               f"ICBHI={test_metrics['icbhi_score']:.2f}")
     
