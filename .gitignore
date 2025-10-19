@@ -4,3 +4,4 @@
 *.egg-info
 mlflow.yaml
 checkpoints
+.log

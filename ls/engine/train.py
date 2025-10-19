@@ -20,28 +20,6 @@ from ls.config.dataclasses import TrainingConfig
 from ls.engine.utils import get_loss
 
 
-# ------------------------------------------------------
-# Training / Evaluation steps
-# ------------------------------------------------------
-
-# import math 
-# def adjust_learning_rate(optimizer, epoch, cfg): 
-#     """Decay the learning rate with half-cycle cosine after warmup"""
-#     warmup_epochs = int(cfg.scheduler.warmup_epochs)
-#     _lr = float(cfg.optimizer.lr)
-#     min_lr = float(cfg.scheduler.min_lr)
-#     if epoch < warmup_epochs: 
-#         lr = _lr * epoch / warmup_epochs
-#     else:
-#         lr = min_lr + (_lr - min_lr) * 0.5 * \
-#         (1. + math.cos(math.pi * (epoch - warmup_epochs) / (cfg.epochs - warmup_epochs)))
-#         for param_group in optimizer.param_groups: 
-#             if "lr_scale" in param_group: 
-#                 param_group["lr"] = lr * param_group["lr_scale"] 
-#             else: 
-#                 param_group["lr"] = lr 
-#     return lr
-
 def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, epoch):
     """
     Train model for one epoch and compute full set of classification metrics.
@@ -86,21 +64,6 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 # Main training loops
 # ------------------------------------------------------
 
-def set_visible_gpus(gpus: str, verbose: bool = True):
-    """
-    Restrict which GPUs PyTorch can see by setting CUDA_VISIBLE_DEVICES.
-
-    Args:
-        gpus (str): Comma-separated GPU indices, e.g., "0,1,2,3".
-        verbose (bool): If True, print the selection info.
-    """
-    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
-    if verbose:
-        print(f"[CUDA] Visible devices set to: {gpus}")
-
-    # Optional sanity check after setting
-    torch.cuda.device_count()  # forces CUDA to reinitialize
-
 
 def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """Train model with optional validation, final test evaluation."""
@@ -142,21 +105,6 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
         # Normalize to 1 and scale by the factor of length
         class_weights = class_weights / class_weights.sum() * len(class_weights)
         print(f"Normalized alpha (sum to num classes): {class_weights}")
-        # total = sum(class_counts)
-        # class_weights = [total/count for count in class_counts]
-        # # Normalize to 1 and scale to number of classes
-        # class_weights /= class_weights.sum() * len(class_weights)
-        # print(f"[INFO] Using dynamically computed class weights: {class_weights}")
-        # # labels = np.array([s['label'] for s  in train_loader.dataset.samples])
-        # n_classes = len(train_loader.dataset.class_counts)
-        # weights = compute_class_weight(
-        #     class_weight="balanced",
-        #     classes=np.arange(n_classes),
-        #     y=labels
-        # )
-        # print(f"Using computed class weights: {weights}", weights.dtype)
-        # weights = weights / weights.sum() # normalize to sum to 1
-        # class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
     else:
         class_weights = None
     criterion = get_loss(cfg, device, class_weights)
@@ -247,9 +195,9 @@ def train_loop(cfg: TrainingConfig, model, train_loader, val_loader=None, test_l
                 torch.save(best_state_dict, ckpt_path)
                 mlflow.log_artifact(ckpt_path, artifact_path="model_checkpoints")
                 print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi:.2f})")
-        # ------------------------
+        # -----------------------------
         # END OF EPOCH — Update LR & WD
-        # ------------------------
+        # -----------------------------
         if scheduler:
             if cfg.scheduler.type == "reduce_on_plateau" and val_loader:
                 # Step based on validation metric

@@ -67,6 +67,7 @@ class ASTModel(nn.Module):
         
         # override timm input shape restriction
         timm.models.vision_transformer.PatchEmbed = PatchEmbed
+        self.label_dim = label_dim
         self.reg_dropout = nn.Dropout(dropout_p)
         
         # if AudioSet pretraining is not used (but ImageNet pretraining may still apply)
@@ -93,8 +94,11 @@ class ASTModel(nn.Module):
             if not backbone_only:
                 self.mlp_head = nn.Sequential(
                     nn.LayerNorm(self.original_embedding_dim), 
-                    self.reg_dropout, 
-                    nn.Linear(self.original_embedding_dim, label_dim)
+                    self.reg_dropout,
+                    nn.Linear(self.original_embedding_dim, 64),  # Hidden layer
+                    nn.ReLU(),
+                    self.reg_dropout,
+                    nn.Linear(64, self.label_dim)  # label_dim outputs, no activation here
                 )
 
             # automatcially get the intermediate shape
@@ -203,12 +207,14 @@ class ASTModel(nn.Module):
             
             # Create new classification head for your task
             self.mlp_head = None
-            if not backbone_only:
-                self.mlp_head = nn.Sequential(
-                    nn.LayerNorm(self.original_embedding_dim), 
-                    self.reg_dropout, 
-                    nn.Linear(self.original_embedding_dim, label_dim)
-                )
+            self.mlp_head = nn.Sequential(
+                nn.LayerNorm(self.original_embedding_dim), 
+                self.reg_dropout,
+                nn.Linear(self.original_embedding_dim, 64),  # Hidden layer
+                nn.ReLU(),
+                self.reg_dropout,
+                nn.Linear(64, self.label_dim)  # 2 outputs (no sigmoid here, apply in loss)
+            )
 
             # Get patch dimensions for your input
             f_dim, t_dim = self.get_shape(fstride, tstride, input_fdim, input_tdim)

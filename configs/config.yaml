@@ -7,7 +7,7 @@ dataset:
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
   n_cls: 4
-  weighted_sampler: True
+  weighted_sampler: true
   batch_size: 8
   num_workers: 0
   h: 128
@@ -47,11 +47,11 @@ audio:
 
     - type: Noise
       color: white
-      p: 0.0
+      p: 0.1
 
     - type: Speed
       factor: [0.9, 1.1]
-      p: 0.0
+      p: 0.1
 
     - type: Loudness
       factor: [0.5, 2.0]
@@ -96,27 +96,26 @@ models:
     fstride: 10
     tstride: 10
     imagenet_pretrain: true
-    label_dim: 4
+    label_dim: 2
     backbone_only: false
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.0
+    dropout: 0.5
 
 training:
   model_name: ast
-  n_cls: 4
-  batch_size: 8
+  n_cls: 2
   loss: cross_entropy # cross_entropy, weighted_ce, focal, label_smoothing
-  alpha: 0.25
+  # alpha: 0.25
   gamma: 2.0
   use_class_weights: false
-  epochs: 200
+  epochs: 100
   kfold_splits: 5
   early_stopping: 15
   grad_clip: 1.0
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 0            # which GPU among visible ones to use
+    device_id: 0           # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
 

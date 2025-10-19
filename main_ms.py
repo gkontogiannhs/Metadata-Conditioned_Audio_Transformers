@@ -47,7 +47,7 @@ def main_multi_seed(n_seeds: int = 5):
             model = build_model(cfg.models, model_key=MODEL_KEY)
 
             # -----------------------------------------------
-            # Properly nested sub-run (inherits experiment)
+            # Nsested sub-run (inherits experiment)
             # -----------------------------------------------
             with mlflow.start_run(
                 experiment_id=experiment_id,
