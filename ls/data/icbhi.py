@@ -149,7 +149,8 @@ class ICBHIDataset(Dataset):
             for cycle_index, (audio_tensor, label) in enumerate(sample_data):
                 row = recording_annotations.iloc[cycle_index]
                 start, end = row["Start"], row["End"]
-                crackles, wheezes = row.get("Crackles", None), row.get("Wheezes", None)
+                crackles, wheezes = row.get("Crackles"), row.get("Wheezes")
+                site, device = row["Site"], row["Device"]
                 cycles.append({
                     "audio": audio_tensor,
                     "label": label,
@@ -160,6 +161,8 @@ class ICBHIDataset(Dataset):
                     "end_time": float(end),
                     "crackle": int(crackles) if crackles is not None else None,
                     "wheeze": int(wheezes) if wheezes is not None else None,
+                    "site": site,
+                    "device": device,
                 })
         if self.print_info:
             print(f"[ICBHI] Extracted {len(cycles)} respiratory cycles "
@@ -280,12 +283,14 @@ class ICBHIDataset(Dataset):
             "end_time": sample["end_time"],
             "crackle": sample["crackle"],
             "wheeze": sample["wheeze"],
+            "site": sample["site"],
+            "device": sample["device"],
         }
 
         if self.multi_label:
-            out["labels"] = torch.tensor(sample["multi_label"], dtype=torch.float32)
+            out["label"] = torch.tensor(sample["multi_label"], dtype=torch.float32)
         else:
-            out["labels"] = sample["label"]
+            out["label"] = sample["label"]
 
         return out
 
