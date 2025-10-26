@@ -43,8 +43,6 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
     Now includes Sensitivity/Specificity for Normal and Both composite classes.
     """
     metrics = {}
-    # metrics['hamming_loss'] = hamming_loss(all_labels, all_preds)
-    # metrics['jaccard_score'] = jaccard_score(all_labels, all_preds, average='samples')
 
     # === Composite 4-class masks ===
     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
@@ -69,7 +67,7 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
     se = (Pc + Pw + Pb) / (Nc + Nw + Nb + 1e-12)
     hs = 0.5 * (sp + se)
     if verbose:
-        print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={hs*100:.2f}%")
+        print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | SC={hs*100:.2f}%")
     metrics.update({'specificity': sp, 'sensitivity': se, 'icbhi_score': hs})
 
     # === Per-pattern metrics (Normal, Crackle, Wheeze, Both) ===
@@ -86,107 +84,34 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
         precision = tp / (tp + fp + 1e-12)
         recall = tp / (tp + fn + 1e-12)
         f1 = 2 * precision * recall / (precision + recall + 1e-12)
-        acc = (tp + tn) / (tp + tn + fp + fn + 1e-12)
-        sensitivity_c = recall  # TP / (TP+FN)
+        # acc = (tp + tn) / (tp + tn + fp + fn + 1e-12)
+        # sensitivity_c = recall  # TP / (TP+FN)
         specificity_c = tn / (tn + fp + 1e-12)
 
         metrics[f'{name}_precision'] = precision
-        metrics[f'{name}_recall'] = recall
+        # metrics[f'{name}_recall'] = recall
         metrics[f'{name}_f1'] = f1
-        metrics[f'{name}_accuracy'] = acc
-        metrics[f'{name}_sensitivity'] = sensitivity_c
+        # metrics[f'{name}_accuracy'] = acc
+        metrics[f'{name}_sensitivity'] = recall
         metrics[f'{name}_specificity'] = specificity_c
 
+    # === Compute as 2-class (normal vs abnormal) ===
+    tp_abn = Pc + Pw + Pb
+    fn_abn = Nc + Nw + Nb - tp_abn
+    tn_abn = Nn
+    fp_abn = tp_abn - fn_abn
+
+    sp_abn = tn_abn / (tn_abn + fp_abn + 1e-12)
+    se_abn = tp_abn / (tp_abn + fn_abn + 1e-12)
+    hs_abn = 0.5 * (sp_abn + se_abn)
+    metrics.update({'abnormal_specificity': sp_abn, 'abnormal_sensitivity': se_abn, 'abnormal_icbhi_score': hs_abn})
+
     # === Macro summaries ===
-    metrics['f1_macro'] = np.mean([metrics['Crackle_f1'], metrics['Wheeze_f1']])
+    # metrics['f1_macro'] = np.mean([metrics['Crackle_f1'], metrics['Wheeze_f1']])
     # metrics['auc_macro'] = np.mean([metrics['Crackle_auc'], metrics['Wheeze_auc']])
-    metrics['accuracy_macro'] = np.mean([metrics['Crackle_accuracy'], metrics['Wheeze_accuracy']])
+    # metrics['accuracy_macro'] = np.mean([metrics['Crackle_accuracy'], metrics['Wheeze_accuracy']])
 
     return metrics
-
-
-# def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
-#     """
-#     Compute detailed multi-label metrics + official ICBHI metrics.
-
-#     Official equations follow:
-#         SPE = Pn / Nn
-#         SEN = (Pc + Pw + Pb) / (Nc + Nw + Nb)
-#         ICBHI = 0.5 * (SPE + SEN)
-#     """
-#     metrics = {}
-#     metrics['hamming_loss'] = hamming_loss(all_labels, all_preds)
-#     metrics['jaccard_score'] = jaccard_score(all_labels, all_preds, average='samples')
-
-#     label_names = ['Crackles', 'Wheezes']
-#     for label_idx, label_name in enumerate(label_names):
-#         y_true = all_labels[:, label_idx]
-#         y_pred = all_preds[:, label_idx]
-#         y_prob = all_probs[:, label_idx]
-
-#         tp = np.sum((y_pred == 1) & (y_true == 1))
-#         fn = np.sum((y_pred == 0) & (y_true == 1))
-#         tn = np.sum((y_pred == 0) & (y_true == 0))
-#         fp = np.sum((y_pred == 1) & (y_true == 0))
-
-#         sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0
-#         specificity = tn / (tn + fp) if (tn + fp) > 0 else 0
-
-#         metrics[f'{label_name}_sensitivity'] = sensitivity
-#         metrics[f'{label_name}_specificity'] = specificity
-#         metrics[f'{label_name}_f1'] = f1_score(y_true, y_pred, zero_division=0)
-#         metrics[f'{label_name}_auc'] = roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else 0.0
-#         metrics[f'{label_name}_accuracy'] = accuracy_score(y_true, y_pred)
-
-#     # Official ICBHI (exact-match per 4-class pattern)
-#     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
-#     is_c = (all_labels[:,0]==1) & (all_labels[:,1]==0)
-#     is_w = (all_labels[:,0]==0) & (all_labels[:,1]==1)
-#     is_b = (all_labels[:,0]==1) & (all_labels[:,1]==1)
-
-#     pr_n = (all_preds[:,0]==0) & (all_preds[:,1]==0)
-#     pr_c = (all_preds[:,0]==1) & (all_preds[:,1]==0)
-#     pr_w = (all_preds[:,0]==0) & (all_preds[:,1]==1)
-#     pr_b = (all_preds[:,0]==1) & (all_preds[:,1]==1)
-
-#     Nn, Nc, Nw, Nb = is_n.sum(), is_c.sum(), is_w.sum(), is_b.sum()
-#     Pn = np.sum(is_n & pr_n)
-#     Pc = np.sum(is_c & pr_c)
-#     Pw = np.sum(is_w & pr_w)
-#     Pb = np.sum(is_b & pr_b)
-
-#     sp = Pn / (Nn + 1e-12)
-#     se = (Pc + Pw + Pb) / (Nc + Nw + Nb + 1e-12)
-#     sc = 0.5 * (sp + se)
-
-#     if verbose:
-#         print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={sc*100:.2f}%")
-
-#     metrics['specificity'] = sp
-#     metrics['sensitivity'] = se
-#     metrics['icbhi_score'] = sc
-
-#     # binary collapse
-#     y_true_bin = np.any(all_labels == 1, axis=1).astype(int)
-#     y_pred_bin = np.any(all_preds == 1, axis=1).astype(int)
-#     tn = np.sum((y_true_bin == 0) & (y_pred_bin == 0))
-#     fp = np.sum((y_true_bin == 0) & (y_pred_bin == 1))
-#     tp = np.sum((y_true_bin == 1) & (y_pred_bin == 1))
-#     fn = np.sum((y_true_bin == 1) & (y_pred_bin == 0))
-#     sp_bin = tn / (tn + fp) if (tn + fp) > 0 else 0
-#     se_bin = tp / (tp + fn) if (tp + fn) > 0 else 0
-#     hs_bin = 0.5 * (sp_bin + se_bin)
-
-#     metrics['specificity_binary'] = sp_bin
-#     metrics['sensitivity_binary'] = se_bin
-#     metrics['icbhi_score_binary'] = hs_bin
-
-#     # Macro summaries
-#     metrics['f1_macro'] = np.mean([metrics['Crackles_f1'], metrics['Wheezes_f1']])
-#     metrics['auc_macro'] = np.mean([metrics['Crackles_auc'], metrics['Wheezes_auc']])
-#     metrics['accuracy_macro'] = np.mean([metrics['Crackles_accuracy'], metrics['Wheezes_accuracy']])
-
-#     return metrics
 
 
 def convert_4class_to_multilabel(labels_4class):
