@@ -37,14 +37,18 @@ def set_visible_gpus(gpus: str, verbose: bool = True):
     torch.cuda.device_count()  # forces CUDA to reinitialize
 
 
-def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
+def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=True):
     """
-    Compute detailed multi-label metrics + official ICBHI metrics.
-    Now includes Sensitivity/Specificity for Normal and Both composite classes.
+    Compute detailed multi-label metrics + official ICBHI metrics +
+    macro-averaged metrics + binary Normal-vs-Abnormal ICBHI score.
+
+    Works for multilabel setup with two binary labels [crackle, wheeze],
+    forming 4 composite classes (Normal, Crackle, Wheeze, Both).
     """
+
     metrics = {}
 
-    # === Composite 4-class masks ===
+    # === Composite 4-class masks (true/pred) ===
     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
     is_c = (all_labels[:,0]==1) & (all_labels[:,1]==0)
     is_w = (all_labels[:,0]==0) & (all_labels[:,1]==1)
@@ -55,88 +59,213 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
     pr_w = (all_preds[:,0]==0) & (all_preds[:,1]==1)
     pr_b = (all_preds[:,0]==1) & (all_preds[:,1]==1)
 
-    # === Counts ===
+    # === Class-wise totals ===
     Nn, Nc, Nw, Nb = is_n.sum(), is_c.sum(), is_w.sum(), is_b.sum()
     Pn = np.sum(is_n & pr_n)
     Pc = np.sum(is_c & pr_c)
     Pw = np.sum(is_w & pr_w)
     Pb = np.sum(is_b & pr_b)
 
-    # === Official ICBHI metrics ===
+    # === Official 4-class ICBHI metrics ===
     sp = Pn / (Nn + 1e-12)
     se = (Pc + Pw + Pb) / (Nc + Nw + Nb + 1e-12)
     hs = 0.5 * (sp + se)
-    if verbose:
-        print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | SC={hs*100:.2f}%")
     metrics.update({'specificity': sp, 'sensitivity': se, 'icbhi_score': hs})
 
-    # === Per-pattern metrics (Normal, Crackle, Wheeze, Both) ===
+    if verbose:
+        print(f"[ICBHI 4-class] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={hs*100:.2f}%")
+
+    # === Per-class metrics ===
     pattern_names = ['Normal', 'Crackle', 'Wheeze', 'Both']
     is_true = [is_n, is_c, is_w, is_b]
     is_pred = [pr_n, pr_c, pr_w, pr_b]
+    Ps = [Pn, Pc, Pw, Pb]
+    Ns = [Nn, Nc, Nw, Nb]
 
-    for name, tmask, pmask in zip(pattern_names, is_true, is_pred):
-        tp = np.sum(tmask & pmask)
-        fp = np.sum(~tmask & pmask)
-        fn = np.sum(tmask & ~pmask)
-        tn = np.sum(~tmask & ~pmask)
+    total_samples = len(all_labels)
+    per_class = []
 
-        precision = tp / (tp + fp + 1e-12)
-        recall = tp / (tp + fn + 1e-12)
+    for name, tmask, pmask, P, N in zip(pattern_names, is_true, is_pred, Ps, Ns):
+        TP = P
+        FN = N - P
+        FP = np.sum(~tmask & pmask)
+        TN = total_samples - TP - FP - FN
+
+        precision = TP / (TP + FP + 1e-12)
+        recall = TP / (TP + FN + 1e-12)         # sensitivity
+        specificity = TN / (TN + FP + 1e-12)
         f1 = 2 * precision * recall / (precision + recall + 1e-12)
-        # acc = (tp + tn) / (tp + tn + fp + fn + 1e-12)
-        # sensitivity_c = recall  # TP / (TP+FN)
-        specificity_c = tn / (tn + fp + 1e-12)
+        # accuracy = (TP + TN) / (TP + TN + FP + FN + 1e-12)
 
-        metrics[f'{name}_precision'] = precision
-        # metrics[f'{name}_recall'] = recall
-        metrics[f'{name}_f1'] = f1
-        # metrics[f'{name}_accuracy'] = acc
-        metrics[f'{name}_sensitivity'] = recall
-        metrics[f'{name}_specificity'] = specificity_c
+        per_class.append({
+            'name': name,
+            'precision': precision,
+            'sensitivity': recall,
+            'specificity': specificity,
+            'f1': f1,
+            'support': N
+        })
 
-    # === Compute as 2-class (normal vs abnormal) ===
-    tp_abn = Pc + Pw + Pb
-    fn_abn = Nc + Nw + Nb - tp_abn
-    tn_abn = Nn
-    fp_abn = tp_abn - fn_abn
+        metrics.update({
+            f'{name}_precision': precision,
+            f'{name}_sensitivity': recall,
+            f'{name}_specificity': specificity,
+            f'{name}_f1': f1,
+        })
 
-    sp_abn = tn_abn / (tn_abn + fp_abn + 1e-12)
-    se_abn = tp_abn / (tp_abn + fn_abn + 1e-12)
-    hs_abn = 0.5 * (sp_abn + se_abn)
-    metrics.update({'abnormal_specificity': sp_abn, 'abnormal_sensitivity': se_abn, 'abnormal_icbhi_score': hs_abn})
+        # if verbose:
+        #     print(f"[{name}] P={precision*100:.2f}% | R={recall*100:.2f}% | "
+        #           f"Sp={specificity*100:.2f}% | F1={f1*100:.2f}%")
+
+    # === Macro and Weighted averages ===
+    precisions = [c['precision'] for c in per_class]
+    sensitivities = [c['sensitivity'] for c in per_class]
+    specificities = [c['specificity'] for c in per_class]
+    f1s = [c['f1'] for c in per_class]
+    supports = [c['support'] for c in per_class]
+
+    metrics.update({
+        'macro_precision': np.mean(precisions),
+        'macro_sensitivity': np.mean(sensitivities),
+        'macro_specificity': np.mean(specificities),
+        'macro_f1': np.mean(f1s),
+        'weighted_precision': np.average(precisions, weights=supports),
+        'weighted_sensitivity': np.average(sensitivities, weights=supports),
+        'weighted_specificity': np.average(specificities, weights=supports),
+        'weighted_f1': np.average(f1s, weights=supports),
+    })
+
+    if verbose:
+        print("\n[Macro averages]")
+        print(f"P={metrics['macro_precision']*100:.2f}% | R={metrics['macro_sensitivity']*100:.2f}% | "
+              f"Sp={metrics['macro_specificity']*100:.2f}% | F1={metrics['macro_f1']*100:.2f}%")
+
+    # === Binary Normal vs Abnormal (ICBHI style) ===
+    is_abn_true = ~is_n
+    is_abn_pred = ~pr_n
+
+    TP = np.sum(is_abn_true & is_abn_pred)  # correctly abnormal
+    TN = np.sum(is_n & pr_n)                # correctly normal
+    FP = np.sum(~is_abn_true & is_abn_pred) # predicted abnormal but actually normal
+    FN = np.sum(is_abn_true & ~is_abn_pred) # predicted normal but actually abnormal
+
+    binary_spe = TN / (TN + FP + 1e-12)
+    binary_sen = TP / (TP + FN + 1e-12)
+    binary_hs = 0.5 * (binary_spe + binary_sen)
+
+    metrics.update({
+        'binary_specificity': binary_spe,
+        'binary_sensitivity': binary_sen,
+        'binary_icbhi_score': binary_hs
+    })
+
+    if verbose:
+        print("\n[Binary Normal-vs-Abnormal ICBHI]")
+        print(f"SPE={binary_spe*100:.2f}% | SEN={binary_sen*100:.2f}% | HS={binary_hs*100:.2f}%")
+
+    return metrics
+
+
+# def compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=True):
+#     """
+#     Compute detailed multi-label metrics + official ICBHI metrics.
+#     Now includes Sensitivity/Specificity for Normal and Both composite classes.
+#     """
+#     metrics = {}
+
+#     # === Composite 4-class masks ===
+#     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
+#     is_c = (all_labels[:,0]==1) & (all_labels[:,1]==0)
+#     is_w = (all_labels[:,0]==0) & (all_labels[:,1]==1)
+#     is_b = (all_labels[:,0]==1) & (all_labels[:,1]==1)
+
+#     pr_n = (all_preds[:,0]==0) & (all_preds[:,1]==0)
+#     pr_c = (all_preds[:,0]==1) & (all_preds[:,1]==0)
+#     pr_w = (all_preds[:,0]==0) & (all_preds[:,1]==1)
+#     pr_b = (all_preds[:,0]==1) & (all_preds[:,1]==1)
+
+#     # === Counts ===
+#     Nn, Nc, Nw, Nb = is_n.sum(), is_c.sum(), is_w.sum(), is_b.sum()
+#     Pn = np.sum(is_n & pr_n)
+#     Pc = np.sum(is_c & pr_c)
+#     Pw = np.sum(is_w & pr_w)
+#     Pb = np.sum(is_b & pr_b)
+
+#     # === Official ICBHI metrics ===
+#     sp = Pn / (Nn + 1e-12)
+#     se = (Pc + Pw + Pb) / (Nc + Nw + Nb + 1e-12)
+#     hs = 0.5 * (sp + se)
+#     if verbose:
+#         print(f"[ICBHI official] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | SC={hs*100:.2f}%")
+#     metrics.update({'specificity': sp, 'sensitivity': se, 'icbhi_score': hs})
+
+#     # === Per-pattern metrics (Normal, Crackle, Wheeze, Both) ===
+#     pattern_names = ['Normal', 'Crackle', 'Wheeze', 'Both']
+#     is_true = [is_n, is_c, is_w, is_b]
+#     is_pred = [pr_n, pr_c, pr_w, pr_b]
+
+#     for name, tmask, pmask in zip(pattern_names, is_true, is_pred):
+#         tp = np.sum(tmask & pmask)
+#         fp = np.sum(~tmask & pmask)
+#         fn = np.sum(tmask & ~pmask)
+#         tn = np.sum(~tmask & ~pmask)
+
+#         precision = tp / (tp + fp + 1e-12)
+#         recall = tp / (tp + fn + 1e-12)
+#         f1 = 2 * precision * recall / (precision + recall + 1e-12)
+#         # acc = (tp + tn) / (tp + tn + fp + fn + 1e-12)
+#         # sensitivity_c = recall  # TP / (TP+FN)
+#         specificity_c = tn / (tn + fp + 1e-12)
+
+#         metrics[f'{name}_precision'] = precision
+#         # metrics[f'{name}_recall'] = recall
+#         metrics[f'{name}_f1'] = f1
+#         # metrics[f'{name}_accuracy'] = acc
+#         metrics[f'{name}_sensitivity'] = recall
+#         metrics[f'{name}_specificity'] = specificity_c
+
+#     # === Compute as 2-class (normal vs abnormal) ===
+#     tp_abn = Pc + Pw + Pb
+#     fn_abn = Nc + Nw + Nb - tp_abn
+#     tn_abn = Nn
+#     fp_abn = tp_abn - fn_abn
+
+#     sp_abn = tn_abn / (tn_abn + fp_abn + 1e-12)
+#     se_abn = tp_abn / (tp_abn + fn_abn + 1e-12)
+#     hs_abn = 0.5 * (sp_abn + se_abn)
+#     metrics.update({'abnormal_specificity': sp_abn, 'abnormal_sensitivity': se_abn, 'abnormal_icbhi_score': hs_abn})
 
     # === Macro summaries ===
     # metrics['f1_macro'] = np.mean([metrics['Crackle_f1'], metrics['Wheeze_f1']])
     # metrics['auc_macro'] = np.mean([metrics['Crackle_auc'], metrics['Wheeze_auc']])
     # metrics['accuracy_macro'] = np.mean([metrics['Crackle_accuracy'], metrics['Wheeze_accuracy']])
 
-    return metrics
+    # return metrics
 
 
-def convert_4class_to_multilabel(labels_4class):
-    """
-    Convert 4-class labels to 2-label binary format.
+# def convert_4class_to_multilabel(labels_4class):
+#     """
+#     Convert 4-class labels to 2-label binary format.
     
-    0 (Normal)   → [0, 0]
-    1 (Crackles) → [1, 0]
-    2 (Wheezes)  → [0, 1]
-    3 (Both)     → [1, 1]
-    """
-    batch_size = labels_4class.shape[0]
-    labels_multilabel = np.zeros((batch_size, 2), dtype=np.float32)
+#     0 (Normal)   → [0, 0]
+#     1 (Crackles) → [1, 0]
+#     2 (Wheezes)  → [0, 1]
+#     3 (Both)     → [1, 1]
+#     """
+#     batch_size = labels_4class.shape[0]
+#     labels_multilabel = np.zeros((batch_size, 2), dtype=np.float32)
     
-    for i, label in enumerate(labels_4class):
-        if label == 0:  # Normal
-            labels_multilabel[i] = [0, 0]
-        elif label == 1:  # Crackles
-            labels_multilabel[i] = [1, 0]
-        elif label == 2:  # Wheezes
-            labels_multilabel[i] = [0, 1]
-        elif label == 3:  # Both
-            labels_multilabel[i] = [1, 1]
+#     for i, label in enumerate(labels_4class):
+#         if label == 0:  # Normal
+#             labels_multilabel[i] = [0, 0]
+#         elif label == 1:  # Crackles
+#             labels_multilabel[i] = [1, 0]
+#         elif label == 2:  # Wheezes
+#             labels_multilabel[i] = [0, 1]
+#         elif label == 3:  # Both
+#             labels_multilabel[i] = [1, 1]
     
-    return labels_multilabel
+#     return labels_multilabel
 
 
 def _icbhi_from_bits(all_labels, all_preds):
@@ -212,7 +341,6 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
         with torch.amp.autocast(device.type):
             logits = model(inputs)  # (B, 2)
             loss = criterion(logits, labels)  # BCEWithLogitsLoss
-            # loss = multilabel_icbhi_loss(logits, labels, lambda_joint=0.1, gamma=2.0)
 
         grdscaler.scale(loss).backward()
         grdscaler.step(optimizer)
@@ -471,7 +599,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 
         # --- VALIDATION ---
         if val_loader:
-            val_loss, val_metrics, val_metrics_groups = evaluate(model, val_loader, criterion, device)
+            val_loss, val_metrics, val_metrics_groups = evaluate(model, val_loader, criterion, device, tune_thresholds=True)
 
             prefix = "Val" if fold_idx is None else f"Val_Fold{fold_idx}"
             mlflow.log_metric(f"{prefix}_loss", val_loss, step=epoch)
@@ -497,10 +625,10 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 best_icbhi, best_state_dict, best_epoch = icbhi, model.state_dict(), epoch
                 ckpt_path = (
                     f"checkpoints/{epoch}_"
-                    f"Crack_Se={val_metrics['Crackle_sensitivity']:.2f}_"
-                    f"Crack_Sp={val_metrics['Crackle_specificity']:.2f}_"
-                    f"Whz_Se={val_metrics['Wheeze_sensitivity']:.2f}_"
-                    f"Whz_Sp={val_metrics['Wheeze_specificity']:.2f}_"
+                    # f"Crack_Se={val_metrics['Crackle_sensitivity']:.2f}_"
+                    # f"Crack_Sp={val_metrics['Crackle_specificity']:.2f}_"
+                    # f"Whz_Se={val_metrics['Wheeze_sensitivity']:.2f}_"
+                    # f"Whz_Sp={val_metrics['Wheeze_specificity']:.2f}_"
                     f"Sp={val_metrics['specificity']:.2f}_"
                     f"Se={val_metrics['sensitivity']:.2f}_"
                     f"ICBHI={icbhi:.2f}_"
@@ -547,7 +675,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         for k, v in test_metrics.items():
             mlflow.log_metric(f"{prefix}_{k}", v)
 
-        # 🔹 Log per-device/site test metrics
+        # Log per-device/site test metrics
         for group, metrics_dict in test_metrics_groups.items():
             for mk, mv in metrics_dict.items():
                 mlflow.log_metric(f"{prefix}_{group}_{mk}", mv)
