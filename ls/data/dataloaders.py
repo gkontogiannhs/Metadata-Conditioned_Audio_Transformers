@@ -37,12 +37,10 @@ def build_dataloaders(
                             train=True, transform=train_transform, print_info=True)
     test_ds = ICBHIDataset(dataset_cfg, audio_cfg,
                            train=False, transform=test_transform, print_info=True)
-
-    # Sampler (optional weighted)
+    
     if dataset_cfg.get("weighted_sampler", False):
-        class_weights = 1.0 / (train_ds.class_counts + 1e-6) # avoid div by zero
-        sample_weights = [class_weights[s["label"]] for s in train_ds.samples] # assign weight to each sample for proper use of WeightedRandomSampler
-        sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights))
+        sample_weights = train_ds.get_sample_weights()
+        sampler = torch.utils.data.WeightedRandomSampler(sample_weights, len(sample_weights), replacement=True)
         shuffle = False
     else:
         sampler = None

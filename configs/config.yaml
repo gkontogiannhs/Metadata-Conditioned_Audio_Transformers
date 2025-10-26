@@ -6,6 +6,7 @@ dataset:
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
+  multi_label: true
   n_cls: 4
   weighted_sampler: true
   batch_size: 8
@@ -17,7 +18,7 @@ audio:
   # audio basics
   sample_rate: 16000
   desired_length: 10.0
-  remove_dc: false
+  remove_dc: true
   normalize: false
   # padding type: zero, repeat
   pad_type: repeat
@@ -26,7 +27,7 @@ audio:
   fade_samples_ratio: 64
   # features
   n_mels: 128
-  frame_length: 40
+  frame_length: 45
   frame_shift: 10
   low_freq: 100
   high_freq: 8000
@@ -37,7 +38,7 @@ audio:
   
   resz: 1.0 # spectrogram resize factor (1.0 = no resize)
   # Augmentation
-  raw_augment: 1
+  raw_augment: 0
   wave_aug:
     - type: Crop
       sampling_rate: 16000
@@ -72,7 +73,7 @@ audio:
   spec_aug:
     - type: SpecAugment
       policy: icbhi_ast_sup
-      mask: mean
+      mask: zero
       p: .3
 
 models:

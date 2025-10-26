@@ -111,6 +111,13 @@ def _extract_lungsound_annotation(file_name: str, data_folder: str) -> Tuple[pd.
         names=["Start", "End", "Crackles", "Wheezes"],
         delimiter="\t",
     )
+    # Add metadata columns to annotation rows
+    recording_annotations["PID  "] = tokens[0]
+    recording_annotations["Site"] = tokens[2]               # Chest location (LU, LL, etc.)
+    recording_annotations["Mode"] = tokens[3]               # Acquisition mode
+    recording_annotations["Device"] = tokens[4]             # Recording equipment
+    recording_annotations["File"] = file_name               # Reference for traceability
+
     return recording_info, recording_annotations
 
 
@@ -140,3 +147,14 @@ def _get_diagnosis_label(disease: str, n_cls: int) -> int:
     elif n_cls == 2:
         return 0 if disease == "Healthy" else 1
     raise ValueError(f"Unsupported n_cls: {n_cls}")
+
+
+def _convert_4class_to_multilabel(label: int) -> List[int]:
+    """Map 4-class integer (0–3) to 2D binary multi-label [crackle, wheeze]."""
+    mapping = {
+        0: [0, 0],  # Normal
+        1: [1, 0],  # Crackle
+        2: [0, 1],  # Wheeze
+        3: [1, 1],  # Both
+    }
+    return mapping.get(int(label), [0, 0])

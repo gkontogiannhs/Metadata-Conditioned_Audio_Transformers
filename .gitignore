@@ -3,5 +3,6 @@
 .DS_Store
 *.egg-info
 mlflow.yaml
-checkpoints
-.log
+checkpoints/
+*.log
+summaries/
