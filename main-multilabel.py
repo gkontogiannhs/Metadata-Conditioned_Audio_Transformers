@@ -332,6 +332,16 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
         inputs, labels = batch["input_values"].to(device), batch["label"].to(device)
         devices, sites = batch["device"], batch["site"]
 
+        # stats per batch
+        # normals = ((labels[:,0]==0) & (labels[:,1]==0)).sum().item()
+        # crackles = ((labels[:,0]==1) & (labels[:,1]==0)).sum().item()
+        # wheezes = ((labels[:,0]==0) & (labels[:,1]==1)).sum().item()
+        # both = ((labels[:,0]==1) & (labels[:,1]==1)).sum().item()
+        # print(f"Batch stats - Normals: {normals}, Crackles: {crackles}, Wheezes: {wheezes}, Both: {both}")
+
+        # unique, counts = np.unique(devices, return_counts=True)
+        # print("Type of device per batch:", dict(zip(unique, counts)))
+        # print("Type of site per batch:", dict(zip(*np.unique(sites, return_counts=True))))
         # Convert 4-class labels to multi-label if needed
         # labels_multilabel = convert_4class_to_multilabel(labels.cpu().numpy())
         # labels = torch.from_numpy(labels_multilabel).to(device)
