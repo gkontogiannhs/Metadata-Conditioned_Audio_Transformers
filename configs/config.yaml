@@ -2,14 +2,14 @@ seed: 42
 
 dataset:
   name: icbhi
-  data_folder: /home/AIoT04/Datasets/icbhi_dataset
+  data_folder: /Users/gkont/Downloads/Datasets/icbhi_dataset
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
   multi_label: true
   n_cls: 4
   weighted_sampler: true
-  batch_size: 8
+  batch_size: 16
   num_workers: 0
   h: 128
   w: 1024
@@ -27,10 +27,10 @@ audio:
   fade_samples_ratio: 64
   # features
   n_mels: 128
-  frame_length: 45
+  frame_length: 40
   frame_shift: 10
   low_freq: 100
-  high_freq: 8000
+  high_freq: 5000
   window_type: hanning
   use_energy: false
   dither: 0.0
@@ -38,7 +38,7 @@ audio:
   
   resz: 1.0 # spectrogram resize factor (1.0 = no resize)
   # Augmentation
-  raw_augment: 0
+  raw_augment: 1
   wave_aug:
     - type: Crop
       sampling_rate: 16000
@@ -100,7 +100,7 @@ models:
     label_dim: 2
     backbone_only: false
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.5
+    dropout: 0.0
 
 training:
   model_name: ast
@@ -131,7 +131,7 @@ training:
 
   scheduler:
     type: cosine_warmup        # options: none, cosine, cosine_warmup, reduce_on_plateau, cosine_warmup_restarts
-    warmup_epochs: 10         # used only for warmup
+    warmup_epochs: 3         # used only for warmup
     T_0: 20               # used only for cosine_*
     start_linear_warmup: 1e-4
     end_linear_warmup: 1
