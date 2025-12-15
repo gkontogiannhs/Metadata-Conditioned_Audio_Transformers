@@ -112,7 +112,7 @@ def _extract_lungsound_annotation(file_name: str, data_folder: str) -> Tuple[pd.
         delimiter="\t",
     )
     # Add metadata columns to annotation rows
-    recording_annotations["PID  "] = tokens[0]
+    recording_annotations["PID"] = tokens[0]
     recording_annotations["Site"] = tokens[2]               # Chest location (LU, LL, etc.)
     recording_annotations["Mode"] = tokens[3]               # Acquisition mode
     recording_annotations["Device"] = tokens[4]             # Recording equipment
