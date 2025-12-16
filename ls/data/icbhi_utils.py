@@ -13,11 +13,10 @@ from typing import Dict, List, Tuple
 from ls.config.dataclasses import AudioConfig, DatasetConfig
 from ls.data.preprocessing import slice_data
 
-
+# ---------------------------
+# Annotation utilities
+# ---------------------------
 def get_annotations(data_folder: str, class_split: str) -> Dict[str, pd.DataFrame]:
-    """
-    Extract annotation data from ICBHI files.
-    """
     if class_split in ["lungsound", "lungsound_meta", "meta"]:
         exclude_list = [
             "patient_diagnosis.txt",
@@ -37,20 +36,7 @@ def get_annotations(data_folder: str, class_split: str) -> Dict[str, pd.DataFram
         return {f: _extract_lungsound_annotation(f, data_folder)[1] for f in filenames}
 
     if class_split == "diagnosis":
-        filenames = [f.split(".")[0] for f in os.listdir(data_folder) if f.endswith(".txt")]
-        diagnosis = pd.read_csv(
-            os.path.join(data_folder, "patient_diagnosis.txt"),
-            names=["Disease"],
-            delimiter="\t",
-        )
-        ann_dict = {}
-        for f in filenames:
-            _, ann = _extract_lungsound_annotation(f, data_folder)
-            ann = ann.drop(["Crackles", "Wheezes"], axis=1)
-            disease = diagnosis.loc[int(f.split("_")[0]), "Disease"]
-            ann["Disease"] = disease
-            ann_dict[f] = ann
-        return ann_dict
+        raise NotImplementedError("Diagnosis split not included in this snippet.")
 
     return {}
 
@@ -61,12 +47,9 @@ def get_individual_cycles(
     audio_cfg: AudioConfig,
     filename: str,
 ) -> List[Tuple[torch.Tensor, int]]:
-    """
-    Split a recording into individual respiratory cycles with labels.
-    """
     fpath = os.path.join(dataset_cfg.data_folder, filename + ".wav")
     data, sr = torchaudio.load(fpath)
-    
+
     if sr != audio_cfg.sample_rate:
         data = T.Resample(sr, audio_cfg.sample_rate)(data)
 
@@ -74,22 +57,12 @@ def get_individual_cycles(
         data -= data.mean()
 
     if audio_cfg.normalize:
-        data /= data.abs().max()
+        data /= (data.abs().max() + 1e-12)
 
-    # if audio_cfg.use_fade:
-    #     fade_len = int(audio_cfg.sample_rate / audio_cfg.fade_samples_ratio)
-    #     fade = T.Fade(fade_in_len=fade_len, fade_out_len=fade_len, fade_shape="linear")
-    #     data = fade(data)
     sample_data = []
     for _, row in recording_annotations.iterrows():
         chunk = slice_data(row["Start"], row["End"], data, audio_cfg.sample_rate)
-
-        if dataset_cfg.class_split == "lungsound":
-            label = _get_lungsound_label(row["Crackles"], row["Wheezes"], dataset_cfg.n_cls)
-        else:  # diagnosis
-            label = _get_diagnosis_label(row["Disease"], dataset_cfg.n_cls)
-        # padded = cut_pad_waveform(chunk, audio_cfg)
-
+        label = _get_lungsound_label(row["Crackles"], row["Wheezes"], dataset_cfg.n_cls)
         sample_data.append((chunk, label))
     return sample_data
 
@@ -111,12 +84,13 @@ def _extract_lungsound_annotation(file_name: str, data_folder: str) -> Tuple[pd.
         names=["Start", "End", "Crackles", "Wheezes"],
         delimiter="\t",
     )
-    # Add metadata columns to annotation rows
+
+    # Add metadata columns to annotation rows (still useful as fallback)
     recording_annotations["PID"] = tokens[0]
-    recording_annotations["Site"] = tokens[2]               # Chest location (LU, LL, etc.)
-    recording_annotations["Mode"] = tokens[3]               # Acquisition mode
-    recording_annotations["Device"] = tokens[4]             # Recording equipment
-    recording_annotations["File"] = file_name               # Reference for traceability
+    recording_annotations["Site"] = tokens[2]
+    recording_annotations["Mode"] = tokens[3]
+    recording_annotations["Device"] = tokens[4]
+    recording_annotations["File"] = file_name
 
     return recording_info, recording_annotations
 
@@ -124,16 +98,26 @@ def _extract_lungsound_annotation(file_name: str, data_folder: str) -> Tuple[pd.
 def _get_lungsound_label(crackle: int, wheeze: int, n_cls: int) -> int:
     if n_cls == 4:
         if crackle == 0 and wheeze == 0:
-            return 0  # normal
+            return 0
         elif crackle == 1 and wheeze == 0:
-            return 1  # crackle
+            return 1
         elif crackle == 0 and wheeze == 1:
-            return 2  # wheeze
+            return 2
         elif crackle == 1 and wheeze == 1:
-            return 3  # both
+            return 3
     elif n_cls == 2:
         return 0 if (crackle == 0 and wheeze == 0) else 1
     raise ValueError(f"Unsupported n_cls: {n_cls}")
+
+
+def _convert_4class_to_multilabel(label: int) -> List[int]:
+    mapping = {
+        0: [0, 0],
+        1: [1, 0],
+        2: [0, 1],
+        3: [1, 1],
+    }
+    return mapping.get(int(label), [0, 0])
 
 
 def _get_diagnosis_label(disease: str, n_cls: int) -> int:
