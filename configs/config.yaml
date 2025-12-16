@@ -3,6 +3,7 @@ seed: 42
 dataset:
   name: icbhi
   data_folder: /Users/gkont/Downloads/Datasets/icbhi_dataset
+  cycle_metadata_path: /Users/gkont/Downloads/Datasets/icbhi_dataset/icbhi_metadata.csv
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
