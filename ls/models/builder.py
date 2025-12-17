@@ -59,6 +59,25 @@ def build_model(cfg: ModelsConfig, model_key: str = "cnn6") -> nn.Module:
             audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
             dropout_p=getattr(model_cfg, "dropout", 0.0),
         )
+    
+    elif model_key == "ast_meta":
+        from ls.models.ast_meta import ASTWithNaiveMetadataConcat
+
+        return ASTWithNaiveMetadataConcat(
+            label_dim=getattr(model_cfg, "label_dim", 4),
+            fstride=getattr(model_cfg, "fstride", 10),
+            tstride=getattr(model_cfg, "tstride", 10),
+            input_fdim=getattr(model_cfg, "input_fdim", 128),
+            input_tdim=getattr(model_cfg, "input_tdim", 1024),
+            imagenet_pretrain=getattr(model_cfg, "imagenet_pretrain", True),
+            audioset_pretrain=getattr(model_cfg, "audioset_pretrain", True),
+            model_size=getattr(model_cfg, "model_size", "base384"),
+            backbone_only=getattr(model_cfg, "backbone_only", False),
+            audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
+            dropout_p=getattr(model_cfg, "dropout", 0.0),
+            metadata_dim=getattr(model_cfg, "metadata_dim", 3),
+            hidden_dim=getattr(model_cfg, "hidden_dim", 32),
+        )
 
     # elif name == "resnet18":
     #     return ResNet18(num_classes=model_cfg.label_dim)

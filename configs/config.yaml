@@ -10,7 +10,7 @@ dataset:
   multi_label: true
   n_cls: 4
   weighted_sampler: true
-  batch_size: 16
+  batch_size: 8
   num_workers: 0
   h: 128
   w: 1024
@@ -103,8 +103,40 @@ models:
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.0
 
+  ast_meta:
+    name: ast_meta
+    audioset_pretrain: true
+    input_fdim: 128
+    input_tdim: 1024
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    imagenet_pretrain: true
+    label_dim: 2
+    backbone_only: false
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+    dropout: 0.0
+    metadata_dim: 3
+    hidden_dim: 32
+
+  ast_fusion:
+    name: ast_fusion
+    audioset_pretrain: true
+    input_fdim: 128
+    input_tdim: 1024
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    imagenet_pretrain: true
+    label_dim: 2
+    backbone_only: false
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+    dropout: 0.0
+    metadata_dim: 3
+    hidden_dim: 32
+
 training:
-  model_name: ast
+  # model_name: ast
   n_cls: 2
   loss: cross_entropy # cross_entropy, weighted_ce, focal, label_smoothing
   # alpha: 0.25

@@ -170,17 +170,19 @@ class ICBHIDataset(Dataset):
             }
 
         # vocab from TSV (stable & no guessing)
-        site2id = {"<UNK>": 0}
+        site2id = {}
         for s in sorted(set(df["AuscLoc"].astype(str).tolist())):
             site2id[s] = len(site2id)
 
-        device2id = {"<UNK>": 0}
+        device2id = {}
         for d in sorted(set(df["Device"].astype(str).tolist())):
             device2id[d] = len(device2id)
 
         if self.print_info:
             print(f"[ICBHI] Loaded cycle metadata TSV: {len(meta)} rows")
-            print(f"[ICBHI] #Sites={len(site2id)-1}, #Devices={len(device2id)-1}")
+            print(f"[ICBHI] #Sites={len(site2id)}, #Devices={len(device2id)}")
+            print(f"[ICBHI] Sites Found: {site2id}")
+            print(f"[ICBHI] Devices Found: {device2id}")
 
         return meta, site2id, device2id
 
@@ -367,17 +369,17 @@ class ICBHIDataset(Dataset):
             fbank = self.transform(fbank)
 
         # categorical ids
-        site_id = self.site2id.get(sample["site"], 0)
-        device_id = self.device2id.get(sample["device"], 0)
+        site_id = self.site2id[sample["site"]]
+        device_id = self.device2id[sample["device"]]
 
         # continuous (NO fitting; raw values)
         age = float(sample["age"])
         bmi = float(sample["bmi"])
-        # dur = float(sample["duration"])
+        dur = float(sample["duration"])
         # sex = float(sample["sex"])  # already 0/1
 
         # cont_feats = torch.tensor([age, bmi, dur], dtype=torch.float32)
-        # m_rest = torch.tensor([sex, age, bmi, dur], dtype=torch.float32)  # FiLM++ rest vector
+        m_rest = torch.tensor([age, bmi, dur], dtype=torch.float32)
 
         out = {
             "input_values": fbank,  # (1, F, T)
@@ -397,10 +399,8 @@ class ICBHIDataset(Dataset):
 
             "age": torch.tensor(age, dtype=torch.float32),
             "bmi": torch.tensor(bmi, dtype=torch.float32),
-
-            # "sex": torch.tensor(sex, dtype=torch.float32),
-            # "cont_feats": cont_feats,  # (3,)
-            # "m_rest": m_rest,          # (4,)
+            
+            "m_rest": m_rest,          # (3 or 4,)
         }
 
         if self.multi_label:

@@ -5,30 +5,34 @@ from ls.models.ast import ASTModel
 class ASTWithMetadataProjection(nn.Module):
     """
     Metadata projection fusion:
-        m -> m' in R^D
+        m = [E_dev(device_id), E_site(site_id), m_rest]
+        m' = W m
         h_tilde = h_CLS + m'
-        h_tilde -> MLP -> logits
     """
     def __init__(
         self,
         ast_kwargs: dict,
-        metadata_dim: int,
+        num_devices: int,
+        num_sites: int,
+        dev_emb_dim: int = 4,
+        site_emb_dim: int = 4,
+        rest_dim: int = 5,
         hidden_dim: int = 64,
         dropout_p: float = 0.3,
         num_labels: int = 2,
     ):
         super().__init__()
-        self.ast = ASTModel(
-            backbone_only=True,
-            **ast_kwargs
-        )
+
+        self.ast = ASTModel(backbone_only=True, **ast_kwargs)
         D = self.ast.original_embedding_dim
-        self.metadata_dim = metadata_dim
 
-        # Linear projection m -> m' in R^D
-        self.metadata_proj = nn.Linear(metadata_dim, D)
+        # categorical encoders
+        self.dev_emb  = nn.Embedding(num_devices, dev_emb_dim)
+        self.site_emb = nn.Embedding(num_sites, site_emb_dim)
 
-        # Same style classifier as baseline
+        meta_dim = dev_emb_dim + site_emb_dim + rest_dim
+        self.metadata_proj = nn.Linear(meta_dim, D)
+
         self.classifier = nn.Sequential(
             nn.LayerNorm(D),
             nn.Dropout(dropout_p),
@@ -38,32 +42,21 @@ class ASTWithMetadataProjection(nn.Module):
             nn.Linear(hidden_dim, num_labels)
         )
 
-    def forward(self, x, m):
+    def forward(self, x, device_id, site_id, m_rest):
         """
-        x: (B, T, F) or (B, 1, F, T)
-        m: (B, M)
+        x:          (B, 1, F, T)
+        device_id:  (B,) long
+        site_id:    (B,) long
+        m_rest:     (B, rest_dim) float
         """
-        h_cls = self.ast(x)               # (B, D)
-        m_prime = self.metadata_proj(m)   # (B, D)
-        h_tilde = h_cls + m_prime         # (B, D)  -- Eq. (11) of paper
+        h_cls = self.ast(x)                    # (B, D)
+
+        dev  = self.dev_emb(device_id)         # (B, d_dev)
+        site = self.site_emb(site_id)          # (B, d_site)
+
+        m = torch.cat([dev, site, m_rest], dim=-1)  # (B, meta_dim)
+        m_prime = self.metadata_proj(m)              # (B, D)
+
+        h_tilde = h_cls + m_prime
         logits = self.classifier(h_tilde)
         return logits
-    
-
-# ast_kwargs = dict(
-#     label_dim=2,          # unused since backbone_only=True
-#     fstride=10,
-#     tstride=10,
-#     input_fdim=128,
-#     input_tdim=1024,
-#     imagenet_pretrain=True,
-#     audioset_pretrain=True,
-#     audioset_ckpt_path='/Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth',
-#     model_size='base384',
-#     verbose=True,
-# )
-
-# astproj = ASTWithMetadataProjection(ast_kwargs, metadata_dim=10, hidden_dim=64, dropout_p=0.3, num_labels=2).to(DEVICE)
-# print(astproj)
-# out = astproj(dummy_input, metadata)  # (2, 2)
-# print(out.shape)  # torch.Size([2, 2])
