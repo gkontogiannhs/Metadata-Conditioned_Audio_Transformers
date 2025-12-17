@@ -165,7 +165,6 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
 
     return metrics
 
-
 def _icbhi_from_bits(all_labels, all_preds):
     """Compute official ICBHI specificity, sensitivity, score from exact class matches."""
     is_n = (all_labels[:,0]==0) & (all_labels[:,1]==0)
@@ -230,10 +229,33 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
         inputs, labels = batch["input_values"].to(device), batch["label"].to(device)
         devices, sites = batch["device"], batch["site"]
 
+        # stats per batch
+        # normals = ((labels[:,0]==0) & (labels[:,1]==0)).sum().item()
+        # crackles = ((labels[:,0]==1) & (labels[:,1]==0)).sum().item()
+        # wheezes = ((labels[:,0]==0) & (labels[:,1]==1)).sum().item()
+        # both = ((labels[:,0]==1) & (labels[:,1]==1)).sum().item()
+        # print(f"Batch stats - Normals: {normals}, Crackles: {crackles}, Wheezes: {wheezes}, Both: {both}")
+
+        # unique, counts = np.unique(devices, return_counts=True)
+        # print("Type of device per batch:", dict(zip(unique, counts)))
+        # print("Type of site per batch:", dict(zip(*np.unique(sites, return_counts=True))))
+        # Convert 4-class labels to multi-label if needed
+        # labels_multilabel = convert_4class_to_multilabel(labels.cpu().numpy())
+        # labels = torch.from_numpy(labels_multilabel).to(device)
+        # print(batch["labels"])
         optimizer.zero_grad()
 
         with torch.amp.autocast(device.type):
-            logits = model(inputs)  # (B, 2)
+            if "device_id" in batch and "site_id" in batch and "m_rest" in batch:
+                device_id = batch["device_id"].to(device)
+                site_id = batch["site_id"].to(device)
+                m_rest = batch["m_rest"].to(device)
+
+                # works for ast_proj / ast_film / ast_filmpp if you keep unified signature
+                logits = model(inputs, device_id, site_id, m_rest)
+            else:
+                logits = model(inputs)
+            
             loss = criterion(logits, labels)  # BCEWithLogitsLoss
 
         grdscaler.scale(loss).backward()
@@ -305,7 +327,14 @@ def evaluate(model, dataloader, criterion, device,
             sites = batch.get("site", ["Unknown"] * len(labels))
 
             with torch.amp.autocast(device.type):
-                logits = model(inputs)
+                if "device_id" in batch and "site_id" in batch and "m_rest" in batch:
+                    device_id = batch["device_id"].to(device)
+                    site_id = batch["site_id"].to(device)
+                    m_rest = batch["m_rest"].to(device)
+                    logits = model(inputs, device_id, site_id, m_rest)
+                else:
+                    logits = model(inputs)
+
                 loss = criterion(logits, labels)
 
             total_loss += loss.item() * inputs.size(0)
@@ -562,7 +591,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 def main_single():
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
-    MODEL_KEY = "ast"  # Options: "cnn6", "ast", "simplerespcnn"
+    MODEL_KEY = "ast_film"  # Options: "cnn6", "ast", "simplerespcnn", "ast_proj", "ast_film", "ast_filmpp"
     
     print(f"Using model: {MODEL_KEY}")
 
@@ -573,7 +602,10 @@ def main_single():
     train_loader, test_loader = build_dataloaders(cfg.dataset, cfg.audio)
 
     # Build Model
-    model = build_model(cfg.models, model_key=MODEL_KEY)
+    NUM_DEVICES = 4
+    NUM_SITES = 7
+    REST_DIM = 3 # age, bmi, cycleduration
+    model = build_model(cfg.models, model_key=MODEL_KEY, num_devices=NUM_DEVICES, num_sites=NUM_SITES, rest_dim=REST_DIM)
     print(model)
     print(f"Model has {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 

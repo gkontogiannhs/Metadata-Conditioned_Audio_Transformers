@@ -2,15 +2,15 @@ seed: 42
 
 dataset:
   name: icbhi
-  data_folder: /Users/gkont/Downloads/Datasets/icbhi_dataset
-  cycle_metadata_path: /Users/gkont/Downloads/Datasets/icbhi_dataset/icbhi_metadata.csv
+  data_folder: /home/AIoT04/Datasets/icbhi_dataset
+  cycle_metadata_path: /home/AIoT04/Datasets/icbhi_dataset/icbhi_metadata.csv
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
   multi_label: true
   n_cls: 4
   weighted_sampler: true
-  batch_size: 8
+  batch_size: 16
   num_workers: 0
   h: 128
   w: 1024
@@ -19,7 +19,7 @@ audio:
   # audio basics
   sample_rate: 16000
   desired_length: 10.0
-  remove_dc: true
+  remove_dc: false
   normalize: false
   # padding type: zero, repeat
   pad_type: repeat
@@ -31,7 +31,7 @@ audio:
   frame_length: 40
   frame_shift: 10
   low_freq: 100
-  high_freq: 5000
+  high_freq: 8000
   window_type: hanning
   use_energy: false
   dither: 0.0
@@ -103,8 +103,8 @@ models:
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.0
 
-  ast_meta:
-    name: ast_meta
+  ast_proj:
+    name: ast_proj
     audioset_pretrain: true
     input_fdim: 128
     input_tdim: 1024
@@ -113,14 +113,14 @@ models:
     tstride: 10
     imagenet_pretrain: true
     label_dim: 2
-    backbone_only: false
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.0
-    metadata_dim: 3
-    hidden_dim: 32
+    dropout: 0.3
+    dev_emb_dim: 4
+    site_emb_dim: 4
+    hidden_dim: 64
 
-  ast_fusion:
-    name: ast_fusion
+  ast_film:
+    name: ast_film
     audioset_pretrain: true
     input_fdim: 128
     input_tdim: 1024
@@ -129,11 +129,33 @@ models:
     tstride: 10
     imagenet_pretrain: true
     label_dim: 2
-    backbone_only: false
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.0
-    metadata_dim: 3
-    hidden_dim: 32
+    dropout: 0.3
+    dev_emb_dim: 4
+    site_emb_dim: 4
+    metadata_hidden_dim: 64
+    film_hidden_dim: 64
+    conditioned_layers: [10, 11, 12]
+
+  ast_filmpp:
+    name: ast_filmpp
+    audioset_pretrain: true
+    input_fdim: 128
+    input_tdim: 1024
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    imagenet_pretrain: true
+    label_dim: 2
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+    dropout: 0.3
+    dev_emb_dim: 4
+    site_emb_dim: 4
+    metadata_hidden_dim: 64
+    film_hidden_dim: 64
+    conditioned_layers: [10, 11, 12]
+    D_dev: 128
+    D_site: 128
 
 training:
   # model_name: ast
@@ -149,7 +171,7 @@ training:
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 0           # which GPU among visible ones to use
+    device_id: 4           # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
 
