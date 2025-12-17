@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from ls.models.ast import ASTModel
 
-class ASTWithMetadataProjection(nn.Module):
+class ASTMetaProj(nn.Module):
     """
     Metadata projection fusion:
         m = [E_dev(device_id), E_site(site_id), m_rest]
@@ -41,7 +41,6 @@ class ASTWithMetadataProjection(nn.Module):
             nn.Dropout(dropout_p),
             nn.Linear(hidden_dim, num_labels)
         )
-
     def forward(self, x, device_id, site_id, m_rest):
         """
         x:          (B, 1, F, T)
@@ -49,13 +48,13 @@ class ASTWithMetadataProjection(nn.Module):
         site_id:    (B,) long
         m_rest:     (B, rest_dim) float
         """
-        h_cls = self.ast(x)                    # (B, D)
+        h_cls = self.ast.forward_features(x) # (B, D)
 
-        dev  = self.dev_emb(device_id)         # (B, d_dev)
-        site = self.site_emb(site_id)          # (B, d_site)
+        dev  = self.dev_emb(device_id)
+        site = self.site_emb(site_id)
 
-        m = torch.cat([dev, site, m_rest], dim=-1)  # (B, meta_dim)
-        m_prime = self.metadata_proj(m)              # (B, D)
+        m = torch.cat([dev, site, m_rest], dim=-1)
+        m_prime = self.metadata_proj(m)
 
         h_tilde = h_cls + m_prime
         logits = self.classifier(h_tilde)

@@ -2,225 +2,186 @@ import torch
 import torch.nn as nn
 from ls.models.ast import ASTModel
 
-class ASTFiLMPlusPlus(ASTModel):
+class ASTFiLMPlusPlus(nn.Module):
     """
-    FiLM++: factor-aligned grouped FiLM with K=3 groups:
-      - device group    (D_dev)
-      - site group      (D_site)
-      - rest group      (D_rest)
+    FiLM++ grouped conditioning:
 
-    Metadata inputs are passed separately as (m_dev, m_site, m_rest).
+      Split hidden dim D = D_dev + D_site + D_rest
+
+      - dev branch uses m_dev = Emb_dev(device_id) -> h_dev -> [Δγ_dev, Δβ_dev] in R^{2D_dev}
+      - site branch uses m_site = Emb_site(site_id) -> h_site -> [Δγ_site, Δβ_site] in R^{2D_site}
+      - rest branch uses m_rest (float) -> h_rest -> [Δγ_rest, Δβ_rest] in R^{2D_rest}
+
+    Apply (after MHSA residual, before FFN):
+      x_dev  = (1+Δγ_dev)  ⊙ x_dev  + Δβ_dev
+      x_site = (1+Δγ_site) ⊙ x_site + Δβ_site
+      x_rest = (1+Δγ_rest) ⊙ x_rest + Δβ_rest
+      x = concat([x_dev, x_site, x_rest], dim=-1)
     """
+
     def __init__(
         self,
-        dev_metadata_dim: int,
-        site_metadata_dim: int,
-        rest_metadata_dim: int,
-        D_dev: int,
-        D_site: int,
-        conditioned_layers=(0, 1, 2, 3),
+        ast_kwargs: dict,
+        num_devices: int,
+        num_sites: int,
+        rest_dim: int,
+        D_dev: int = 128,
+        D_site: int = 128,
+        conditioned_layers=(10, 11, 12),
+        dev_emb_dim: int = 4,
+        site_emb_dim: int = 4,
         metadata_hidden_dim: int = 64,
         film_hidden_dim: int = 64,
-        num_labels: int = 2,
         dropout_p: float = 0.3,
-        ast_kwargs: dict = None,
+        num_labels: int = 2,
+        debug_film: bool = False,
     ):
-        ast_kwargs = ast_kwargs or {}
-        super().__init__(backbone_only=True, **ast_kwargs)
+        super().__init__()
 
-        self.conditioned_layers = sorted(list(conditioned_layers))
-        self.conditioned_layers_set = set(self.conditioned_layers)
+        self.ast = ASTModel(backbone_only=True, **ast_kwargs)
+        D = self.ast.original_embedding_dim
+        self.D = D
 
-        D_total = self.original_embedding_dim
-        assert D_dev + D_site <= D_total, "D_dev + D_site must be <= total embedding dim"
-        D_rest = D_total - D_dev - D_site
+        assert D_dev > 0 and D_site > 0 and (D_dev + D_site) < D, \
+            "Need D_rest = D - D_dev - D_site > 0"
 
         self.D_dev = D_dev
         self.D_site = D_site
-        self.D_rest = D_rest
-        self.D_total = D_total
+        self.D_rest = D - D_dev - D_site
 
-        # --- Metadata encoders for each factor ---
+        self.debug_film = debug_film
+        self.conditioned_layers = sorted(list(conditioned_layers))
+        self.conditioned_set = set(self.conditioned_layers)
+
+        # Categorical embeddings
+        self.dev_emb = nn.Embedding(num_devices, dev_emb_dim)
+        self.site_emb = nn.Embedding(num_sites, site_emb_dim)
+
+        # Encoders per branch
         self.dev_encoder = nn.Sequential(
-            nn.LayerNorm(dev_metadata_dim),
-            nn.Linear(dev_metadata_dim, metadata_hidden_dim),
+            nn.LayerNorm(dev_emb_dim),
+            nn.Linear(dev_emb_dim, metadata_hidden_dim),
             nn.ReLU(),
             nn.Linear(metadata_hidden_dim, film_hidden_dim),
             nn.ReLU(),
         )
         self.site_encoder = nn.Sequential(
-            nn.LayerNorm(site_metadata_dim),
-            nn.Linear(site_metadata_dim, metadata_hidden_dim),
+            nn.LayerNorm(site_emb_dim),
+            nn.Linear(site_emb_dim, metadata_hidden_dim),
             nn.ReLU(),
             nn.Linear(metadata_hidden_dim, film_hidden_dim),
             nn.ReLU(),
         )
         self.rest_encoder = nn.Sequential(
-            nn.LayerNorm(rest_metadata_dim),
-            nn.Linear(rest_metadata_dim, metadata_hidden_dim),
+            nn.LayerNorm(rest_dim),
+            nn.Linear(rest_dim, metadata_hidden_dim),
             nn.ReLU(),
             nn.Linear(metadata_hidden_dim, film_hidden_dim),
             nn.ReLU(),
         )
 
-        # --- FiLM generators per group and per conditioned layer ---
-        self.dev_film = nn.ModuleDict()
-        self.site_film = nn.ModuleDict()
-        self.rest_film = nn.ModuleDict()
-        for l in self.conditioned_layers:
-            self.dev_film[str(l)] = nn.Linear(film_hidden_dim, 2 * D_dev)
-            self.site_film[str(l)] = nn.Linear(film_hidden_dim, 2 * D_site)
-            self.rest_film[str(l)] = nn.Linear(film_hidden_dim, 2 * D_rest)
+        # Per-layer generators per branch
+        self.dev_generators = nn.ModuleDict({
+            str(l): nn.Linear(film_hidden_dim, 2 * self.D_dev) for l in self.conditioned_layers
+        })
+        self.site_generators = nn.ModuleDict({
+            str(l): nn.Linear(film_hidden_dim, 2 * self.D_site) for l in self.conditioned_layers
+        })
+        self.rest_generators = nn.ModuleDict({
+            str(l): nn.Linear(film_hidden_dim, 2 * self.D_rest) for l in self.conditioned_layers
+        })
 
-        # Classification head (same style as baseline)
+        # Classifier head
         self.classifier = nn.Sequential(
-            nn.LayerNorm(D_total),
+            nn.LayerNorm(D),
             nn.Dropout(dropout_p),
-            nn.Linear(D_total, 64),
+            nn.Linear(D, 64),
             nn.ReLU(),
             nn.Dropout(dropout_p),
             nn.Linear(64, num_labels),
         )
 
-    def _apply_filmpp_grouped(self, x, gammas, betas):
-        """
-        x:      (B, T, D_total)
-        gammas: dict with 'dev','site','rest' tensors (B, D_group)
-        betas:  same as above
-
-        Applies group-wise FiLM and returns (B, T, D_total).
-        """
-        B, T, D = x.shape
-        D_dev, D_site, D_rest = self.D_dev, self.D_site, self.D_rest
-
-        x_dev, x_site, x_rest = torch.split(
-            x, [D_dev, D_site, D_rest], dim=-1
-        )  # each (B, T, D_group)
-
-        # Broadcast gammas/betas over tokens
-        g_dev = gammas["dev"].unsqueeze(1)   # (B, 1, D_dev)
-        b_dev = betas["dev"].unsqueeze(1)
-        g_site = gammas["site"].unsqueeze(1) # (B, 1, D_site)
-        b_site = betas["site"].unsqueeze(1)
-        g_rest = gammas["rest"].unsqueeze(1) # (B, 1, D_rest)
-        b_rest = betas["rest"].unsqueeze(1)
-
-        x_dev_hat = g_dev * x_dev + b_dev
-        x_site_hat = g_site * x_site + b_site
-        x_rest_hat = g_rest * x_rest + b_rest
-
-        x_hat = torch.cat([x_dev_hat, x_site_hat, x_rest_hat], dim=-1)  # (B, T, D_total)
-        return x_hat
-
-    def forward_features(self, x, m_dev, m_site, m_rest):
-        """
-        x:      (B, 1, F, T)
-        m_dev:  (B, dev_metadata_dim)
-        m_site: (B, site_metadata_dim)
-        m_rest: (B, rest_metadata_dim)
-        """
+    def _prep_tokens(self, x):
         B = x.shape[0]
+        v = self.ast.v
+        x = v.patch_embed(x)  # (B, N, D)
 
-        # Patch embedding
-        x = self.v.patch_embed(x)
-        cls_tokens = self.v.cls_token.expand(B, -1, -1)
-        dist_token = self.v.dist_token.expand(B, -1, -1)
+        cls_tokens = v.cls_token.expand(B, -1, -1)
+        dist_token = v.dist_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, dist_token, x), dim=1)
-        x = x + self.v.pos_embed
-        x = self.v.pos_drop(x)
 
-        # Encode metadata for each factor
-        h_dev = self.dev_encoder(m_dev)
-        h_site = self.site_encoder(m_site)
-        h_rest = self.rest_encoder(m_rest)
+        x = x + v.pos_embed
+        x = v.pos_drop(x)
+        return x
 
-        # Precompute gamma,beta for each conditioned layer
-        gamma_dev, beta_dev = {}, {}
-        gamma_site, beta_site = {}, {}
-        gamma_rest, beta_rest = {}, {}
+    def forward_features(self, x, device_id, site_id, m_rest):
+        v = self.ast.v
+        x = self._prep_tokens(x)
 
+        # Branch embeddings / encodings
+        m_dev = self.dev_emb(device_id)          # (B, dev_emb_dim)
+        m_site = self.site_emb(site_id)          # (B, site_emb_dim)
+
+        h_dev = self.dev_encoder(m_dev)          # (B, H)
+        h_site = self.site_encoder(m_site)       # (B, H)
+        h_rest = self.rest_encoder(m_rest)       # (B, H)
+
+        # Precompute params for each conditioned layer
+        params = {}
         for l in self.conditioned_layers:
-            dev_params = self.dev_film[str(l)](h_dev)   # (B, 2*D_dev)
-            site_params = self.site_film[str(l)](h_site) # (B, 2*D_site)
-            rest_params = self.rest_film[str(l)](h_rest) # (B, 2*D_rest)
+            # dev
+            film_d = self.dev_generators[str(l)](h_dev)     # (B, 2*D_dev)
+            dg_d, db_d = film_d.chunk(2, dim=-1)
+            g_dev = 1.0 + dg_d
+            b_dev = db_d
 
-            g_dev, b_dev = dev_params.chunk(2, dim=-1)
-            g_site, b_site = site_params.chunk(2, dim=-1)
-            g_rest, b_rest = rest_params.chunk(2, dim=-1)
+            # site
+            film_s = self.site_generators[str(l)](h_site)   # (B, 2*D_site)
+            dg_s, db_s = film_s.chunk(2, dim=-1)
+            g_site = 1.0 + dg_s
+            b_site = db_s
 
-            gamma_dev[l], beta_dev[l] = g_dev, b_dev
-            gamma_site[l], beta_site[l] = g_site, b_site
-            gamma_rest[l], beta_rest[l] = g_rest, b_rest
+            # rest
+            film_r = self.rest_generators[str(l)](h_rest)   # (B, 2*D_rest)
+            dg_r, db_r = film_r.chunk(2, dim=-1)
+            g_rest = 1.0 + dg_r
+            b_rest = db_r
 
-        # Unroll ViT blocks with FiLM++ after MHSA
-        for layer_idx, blk in enumerate(self.v.blocks):
+            params[l] = (g_dev, b_dev, g_site, b_site, g_rest, b_rest)
+
+        # Unroll transformer blocks
+        for layer_idx, blk in enumerate(v.blocks):
             attn_out = blk.attn(blk.norm1(x))
-            x = x + blk.drop_path(attn_out)   # (B, T, D_total)
+            x = x + blk.drop_path(attn_out)
 
-            if layer_idx in self.conditioned_layers_set:
-                gammas = {
-                    "dev": gamma_dev[layer_idx],
-                    "site": gamma_site[layer_idx],
-                    "rest": gamma_rest[layer_idx],
-                }
-                betas = {
-                    "dev": beta_dev[layer_idx],
-                    "site": beta_site[layer_idx],
-                    "rest": beta_rest[layer_idx],
-                }
-                x = self._apply_filmpp_grouped(x, gammas, betas)
+            if layer_idx in self.conditioned_set:
+                if self.debug_film:
+                    print(f"[FiLM++] layer {layer_idx}")
+
+                g_dev, b_dev, g_site, b_site, g_rest, b_rest = params[layer_idx]
+
+                # Split feature dimension
+                x_dev = x[:, :, :self.D_dev]                                  # (B,T,D_dev)
+                x_site = x[:, :, self.D_dev:self.D_dev + self.D_site]         # (B,T,D_site)
+                x_rest = x[:, :, self.D_dev + self.D_site:]                   # (B,T,D_rest)
+
+                # Broadcast over tokens
+                x_dev  = g_dev.unsqueeze(1)  * x_dev  + b_dev.unsqueeze(1)
+                x_site = g_site.unsqueeze(1) * x_site + b_site.unsqueeze(1)
+                x_rest = g_rest.unsqueeze(1) * x_rest + b_rest.unsqueeze(1)
+
+                x = torch.cat([x_dev, x_site, x_rest], dim=-1)
 
             x = x + blk.drop_path(blk.mlp(blk.norm2(x)))
 
-        x = self.v.norm(x)
-        h_cls = (x[:, 0] + x[:, 1]) / 2
+        x = v.norm(x)
+        h_cls = (x[:, 0] + x[:, 1]) / 2.0
         return h_cls
 
-    def forward(self, x, m_dev, m_site, m_rest):
-        """
-        x:      (B, T, F) or (B, 1, F, T)
-        m_dev:  (B, dev_metadata_dim)
-        m_site: (B, site_metadata_dim)
-        m_rest: (B, rest_metadata_dim)
-        """
+    def forward(self, x, device_id, site_id, m_rest):
         if x.dim() == 3:
-            x = x.unsqueeze(1).transpose(2, 3)
+            x = x.unsqueeze(1).transpose(2, 3)  # (B,1,F,T)
 
-        h_cls = self.forward_features(x, m_dev, m_site, m_rest)
-        logits = self.classifier(h_cls)
+        h = self.forward_features(x, device_id, site_id, m_rest)
+        logits = self.classifier(h)
         return logits
-    
-
-# ast_kwargs = dict(
-#     label_dim=2,          # unused since backbone_only=True
-#     fstride=10,
-#     tstride=10,
-#     input_fdim=128,
-#     input_tdim=1024,
-#     imagenet_pretrain=True,
-#     audioset_pretrain=True,
-#     audioset_ckpt_path='/Users/gkont/Documents/Code/pretrained_models/audioset_10_10_0.4593.pth',
-#     model_size='base384',
-#     verbose=True,
-# )
-
-# astfilmpp = ASTFiLMPlusPlus(
-#     dev_metadata_dim=4,
-#     site_metadata_dim=7,
-#     rest_metadata_dim=3,
-#     D_dev=128,
-#     D_site=128,
-#     ast_kwargs=ast_kwargs,
-#     conditioned_layers=(10, 11, 12), # last 3 layers
-#     metadata_hidden_dim=64, 
-#     film_hidden_dim=64,
-#     dropout_p=0.3, 
-#     num_labels=2
-# ).to(DEVICE)
-# print(astfilmpp)
-
-# dev_metadata = torch.randn(2, 4).to(DEVICE)
-# site_metadata = torch.randn(2, 7).to(DEVICE)
-# rest_metadata = torch.randn(2, 3).to(DEVICE)
-# out = astfilmpp(dummy_input, dev_metadata, site_metadata, rest_metadata)  # (2, 2)
-# print(out.shape)  # torch.Size([2, 2])
