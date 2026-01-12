@@ -137,8 +137,8 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
 
     if verbose:
         print("\n[Macro averages]")
-        print(f"P={metrics['macro_precision']*100:.2f}% | R={metrics['macro_sensitivity']*100:.2f}% | "
-              f"Sp={metrics['macro_specificity']*100:.2f}% | F1={metrics['macro_f1']*100:.2f}%")
+        print(f"P={metrics['macro_precision']*100:.4f}% | R={metrics['macro_sensitivity']*100:.4f}% | "
+              f"Sp={metrics['macro_specificity']*100:.4f}% | F1={metrics['macro_f1']*100:.4f}%")
 
     # === Binary Normal vs Abnormal (ICBHI style) ===
     is_abn_true = ~is_n
@@ -161,7 +161,7 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
 
     if verbose:
         print("\n[Binary Normal-vs-Abnormal ICBHI]")
-        print(f"SPE={binary_spe*100:.2f}% | SEN={binary_sen*100:.2f}% | HS={binary_hs*100:.2f}%")
+        print(f"SPE={binary_spe*100:.4f}% | SEN={binary_sen*100:.4f}% | HS={binary_hs*100:.4f}%")
 
     return metrics
 
@@ -291,8 +291,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
             np.array(group_probs[group]),
             verbose=False
         )
-        print(f"[Epoch {epoch}] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.2f}% | "
-              f"Sp: {group_metrics[group]['specificity']*100:.2f}% | Se: {group_metrics[group]['sensitivity']*100:.2f}%")
+        print(f"[Epoch {epoch}] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.4f}% | "
+              f"Sp: {group_metrics[group]['specificity']*100:.4f}% | Se: {group_metrics[group]['sensitivity']*100:.4f}%")
     return avg_loss, global_metrics, group_metrics
 
 
@@ -374,9 +374,9 @@ def evaluate(model, dataloader, criterion, device,
         ], axis=1)
 
         group_metrics[group] = compute_multilabel_metrics(y_true, y_pred, y_prob, verbose=False)
-        print(f"[Eval] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.2f}% | "
-              f"Sp: {group_metrics[group]['specificity']*100:.2f}% | "
-              f"Se: {group_metrics[group]['sensitivity']*100:.2f}%")
+        print(f"[Eval] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.4f}% | "
+              f"Sp: {group_metrics[group]['specificity']*100:.4f}% | "
+              f"Se: {group_metrics[group]['sensitivity']*100:.4f}%")
     # Include thresholds in main metrics for logging
     global_metrics["threshold_crackle"] = thresholds[0]
     global_metrics["threshold_wheeze"] = thresholds[1]
@@ -441,12 +441,12 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 
         print(f"[{prefix}][Epoch {epoch}] "
               f"Loss={train_loss:.4f} | "
-              f"Normal(Se/Sp)={train_metrics['Normal_sensitivity']:.2f}/{train_metrics['Normal_specificity']:.2f} | "
-              f"Crackles(Se/Sp)={train_metrics['Crackle_sensitivity']:.2f}/{train_metrics['Crackle_specificity']:.2f} | "
-              f"Wheezes(Se/Sp)={train_metrics['Wheeze_sensitivity']:.2f}/{train_metrics['Wheeze_specificity']:.2f} | "
-              f"Both(Se/Sp)={train_metrics['Both_sensitivity']:.2f}/{train_metrics['Both_specificity']:.2f} | "
-              f"Sensitivity={train_metrics['sensitivity']:.2f}/Specificity={train_metrics['specificity']:.2f} | "
-              f"ICBHI={train_metrics['icbhi_score']:.2f}")
+              f"Normal(Se/Sp)={train_metrics['Normal_sensitivity']:.4f}/{train_metrics['Normal_specificity']:.4f} | "
+              f"Crackles(Se/Sp)={train_metrics['Crackle_sensitivity']:.4f}/{train_metrics['Crackle_specificity']:.4f} | "
+              f"Wheezes(Se/Sp)={train_metrics['Wheeze_sensitivity']:.4f}/{train_metrics['Wheeze_specificity']:.4f} | "
+              f"Both(Se/Sp)={train_metrics['Both_sensitivity']:.4f}/{train_metrics['Both_specificity']:.4f} | "
+              f"Sensitivity={train_metrics['sensitivity']:.4f}/Specificity={train_metrics['specificity']:.4f} | "
+              f"ICBHI={train_metrics['icbhi_score']:.4f}")
 
         # --- VALIDATION ---
         if val_loader:
@@ -464,12 +464,12 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 
             print(f"[{prefix}][Epoch {epoch}] "
                   f"Loss={val_loss:.4f} | "
-                  f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.2f}/{val_metrics['Normal_specificity']:.2f} | "
-                  f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.2f}/{val_metrics['Crackle_specificity']:.2f} | "
-                  f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.2f}/{val_metrics['Wheeze_specificity']:.2f} | "
-                  f"Both(Se/Sp)={val_metrics['Both_sensitivity']:.2f}/{val_metrics['Both_specificity']:.2f} | "
-                  f"Sensitivity={val_metrics['sensitivity']:.2f}/Specificity={val_metrics['specificity']:.2f} | "
-                  f"ICBHI={val_metrics['icbhi_score']:.2f}")
+                  f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.4f}/{val_metrics['Normal_specificity']:.4f} | "
+                  f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.4f}/{val_metrics['Crackle_specificity']:.4f} | "
+                  f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.4f}/{val_metrics['Wheeze_specificity']:.4f} | "
+                  f"Both(Se/Sp)={val_metrics['Both_sensitivity']:.4f}/{val_metrics['Both_specificity']:.4f} | "
+                  f"Sensitivity={val_metrics['sensitivity']:.4f}/Specificity={val_metrics['specificity']:.4f} | "
+                  f"ICBHI={val_metrics['icbhi_score']:.4f}")
 
             icbhi = val_metrics["icbhi_score"]
             if icbhi > best_icbhi:
@@ -478,11 +478,11 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                     f"checkpoints/{epoch}_"
                     # f"Crack_Se={val_metrics['Crackle_sensitivity']:.2f}_"
                     # f"Crack_Sp={val_metrics['Crackle_specificity']:.2f}_"
-                    # f"Whz_Se={val_metrics['Wheeze_sensitivity']:.2f}_"
-                    # f"Whz_Sp={val_metrics['Wheeze_specificity']:.2f}_"
-                    f"Sp={val_metrics['specificity']:.2f}_"
-                    f"Se={val_metrics['sensitivity']:.2f}_"
-                    f"ICBHI={icbhi:.2f}_"
+                    # f"Whz_Se={val_metrics['Wheeze_sensitivity']:.4f}_"
+                    # f"Whz_Sp={val_metrics['Wheeze_specificity']:.4f}_"
+                    f"Sp={val_metrics['specificity']:.4f}_"
+                    f"Se={val_metrics['sensitivity']:.4f}_"
+                    f"ICBHI={icbhi:.4f}_"
                     f"fold{fold_idx or 0}_best.pt"
                 )
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
@@ -575,7 +575,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 def main_single():
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
-    MODEL_KEY = "ast"  # Options: "cnn6", "ast", "simplerespcnn", "ast_proj", "ast_film", "ast_filmpp"
+    MODEL_KEY = "ast"  # Options: "cnn6", "ast", "simplerespcnn"
     
     print(f"Using model: {MODEL_KEY}")
 

@@ -73,7 +73,7 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
     metrics.update({'specificity': sp, 'sensitivity': se, 'icbhi_score': hs})
 
     if verbose:
-        print(f"[ICBHI 4-class] SPE={sp*100:.2f}% | SEN={se*100:.2f}% | HS={hs*100:.2f}%")
+        print(f"[ICBHI 4-class] SPE={sp*100:.3f}% | SEN={se*100:.3f}% | HS={hs*100:.3f}%")
 
     # === Per-class metrics ===
     pattern_names = ['Normal', 'Crackle', 'Wheeze', 'Both']
@@ -114,8 +114,8 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
         })
 
         # if verbose:
-        #     print(f"[{name}] P={precision*100:.2f}% | R={recall*100:.2f}% | "
-        #           f"Sp={specificity*100:.2f}% | F1={f1*100:.2f}%")
+        #     print(f"[{name}] P={precision*100:.3f}% | R={recall*100:.3f}% | "
+        #           f"Sp={specificity*100:.3f}% | F1={f1*100:.3f}%")
 
     # === Macro and Weighted averages ===
     precisions = [c['precision'] for c in per_class]
@@ -137,8 +137,8 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
 
     if verbose:
         print("\n[Macro averages]")
-        print(f"P={metrics['macro_precision']*100:.2f}% | R={metrics['macro_sensitivity']*100:.2f}% | "
-              f"Sp={metrics['macro_specificity']*100:.2f}% | F1={metrics['macro_f1']*100:.2f}%")
+        print(f"P={metrics['macro_precision']*100:.3f}% | R={metrics['macro_sensitivity']*100:.3f}% | "
+              f"Sp={metrics['macro_specificity']*100:.3f}% | F1={metrics['macro_f1']*100:.3f}%")
 
     # === Binary Normal vs Abnormal (ICBHI style) ===
     is_abn_true = ~is_n
@@ -161,7 +161,7 @@ def compute_multilabel_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
 
     if verbose:
         print("\n[Binary Normal-vs-Abnormal ICBHI]")
-        print(f"SPE={binary_spe*100:.2f}% | SEN={binary_sen*100:.2f}% | HS={binary_hs*100:.2f}%")
+        print(f"SPE={binary_spe*100:.3f}% | SEN={binary_sen*100:.3f}% | HS={binary_hs*100:.3f}%")
 
     return metrics
 
@@ -288,8 +288,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
     global_metrics = compute_multilabel_metrics(
         np.array(all_labels), np.array(all_preds), np.array(all_probs)
     )
-    # print(f"[Epoch {epoch}] Global | HS: {global_metrics['icbhi_score']*100:.2f}% | "
-    #       f"Sp: {global_metrics['specificity']*100:.2f}% | Se: {global_metrics['sensitivity']*100:.2f}%")
+    # print(f"[Epoch {epoch}] Global | HS: {global_metrics['icbhi_score']*100:.3f}% | "
+    #       f"Sp: {global_metrics['specificity']*100:.3f}% | Se: {global_metrics['sensitivity']*100:.3f}%")
 
     # ----- Group-level metrics -----
     group_metrics = {}
@@ -300,8 +300,8 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
             np.array(group_probs[group]),
             verbose=False
         )
-        print(f"[Epoch {epoch}] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.2f}% | "
-              f"Sp: {group_metrics[group]['specificity']*100:.2f}% | Se: {group_metrics[group]['sensitivity']*100:.2f}%")
+        print(f"[Epoch {epoch}] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.3f}% | "
+              f"Sp: {group_metrics[group]['specificity']*100:.3f}% | Se: {group_metrics[group]['sensitivity']*100:.3f}%")
     return avg_loss, global_metrics, group_metrics
 
 
@@ -362,7 +362,7 @@ def evaluate(model, dataloader, criterion, device,
         thresholds = (best["tC"], best["tW"])
         # if verbose:
         #     print(f"→ Best thresholds: tC={thresholds[0]:.3f}, tW={thresholds[1]:.3f} "
-        #           f"(HS={best['hs']*100:.2f}%, Sp={best['sp']*100:.2f}%, Se={best['se']*100:.2f}%)")
+        #           f"(HS={best['hs']*100:.3f}%, Sp={best['sp']*100:.3f}%, Se={best['se']*100:.3f}%)")
 
     # Apply thresholds
     all_preds = np.stack([
@@ -390,9 +390,9 @@ def evaluate(model, dataloader, criterion, device,
         ], axis=1)
 
         group_metrics[group] = compute_multilabel_metrics(y_true, y_pred, y_prob, verbose=False)
-        print(f"[Eval] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.2f}% | "
-              f"Sp: {group_metrics[group]['specificity']*100:.2f}% | "
-              f"Se: {group_metrics[group]['sensitivity']*100:.2f}%")
+        print(f"[Eval] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.3f}% | "
+              f"Sp: {group_metrics[group]['specificity']*100:.3f}% | "
+              f"Se: {group_metrics[group]['sensitivity']*100:.3f}%")
     # Include thresholds in main metrics for logging
     global_metrics["threshold_crackle"] = thresholds[0]
     global_metrics["threshold_wheeze"] = thresholds[1]
@@ -456,13 +456,13 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
 
         print(f"[{prefix}][Epoch {epoch}] "
-              f"Loss={train_loss:.4f} | "
-              f"Normal(Se/Sp)={train_metrics['Normal_sensitivity']:.2f}/{train_metrics['Normal_specificity']:.2f} | "
-              f"Crackles(Se/Sp)={train_metrics['Crackle_sensitivity']:.2f}/{train_metrics['Crackle_specificity']:.2f} | "
-              f"Wheezes(Se/Sp)={train_metrics['Wheeze_sensitivity']:.2f}/{train_metrics['Wheeze_specificity']:.2f} | "
-              f"Both(Se/Sp)={train_metrics['Both_sensitivity']:.2f}/{train_metrics['Both_specificity']:.2f} | "
-              f"Sensitivity={train_metrics['sensitivity']:.2f}/Specificity={train_metrics['specificity']:.2f} | "
-              f"ICBHI={train_metrics['icbhi_score']:.2f}")
+              f"Loss={train_loss:.3f} | "
+              f"Normal(Se/Sp)={train_metrics['Normal_sensitivity']:.3f}/{train_metrics['Normal_specificity']:.3f} | "
+              f"Crackles(Se/Sp)={train_metrics['Crackle_sensitivity']:.3f}/{train_metrics['Crackle_specificity']:.3f} | "
+              f"Wheezes(Se/Sp)={train_metrics['Wheeze_sensitivity']:.3f}/{train_metrics['Wheeze_specificity']:.3f} | "
+              f"Both(Se/Sp)={train_metrics['Both_sensitivity']:.3f}/{train_metrics['Both_specificity']:.3f} | "
+              f"Sensitivity={train_metrics['sensitivity']:.3f}/Specificity={train_metrics['specificity']:.3f} | "
+              f"ICBHI={train_metrics['icbhi_score']:.3f}")
 
         # --- VALIDATION ---
         if val_loader:
@@ -479,32 +479,32 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                     mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
 
             print(f"[{prefix}][Epoch {epoch}] "
-                  f"Loss={val_loss:.4f} | "
-                  f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.2f}/{val_metrics['Normal_specificity']:.2f} | "
-                  f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.2f}/{val_metrics['Crackle_specificity']:.2f} | "
-                  f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.2f}/{val_metrics['Wheeze_specificity']:.2f} | "
-                  f"Both(Se/Sp)={val_metrics['Both_sensitivity']:.2f}/{val_metrics['Both_specificity']:.2f} | "
-                  f"Sensitivity={val_metrics['sensitivity']:.2f}/Specificity={val_metrics['specificity']:.2f} | "
-                  f"ICBHI={val_metrics['icbhi_score']:.2f}")
+                  f"Loss={val_loss:.3f} | "
+                  f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.3f}/{val_metrics['Normal_specificity']:.3f} | "
+                  f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.3f}/{val_metrics['Crackle_specificity']:.3f} | "
+                  f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.3f}/{val_metrics['Wheeze_specificity']:.3f} | "
+                  f"Both(Se/Sp)={val_metrics['Both_sensitivity']:.3f}/{val_metrics['Both_specificity']:.3f} | "
+                  f"Sensitivity={val_metrics['sensitivity']:.3f}/Specificity={val_metrics['specificity']:.3f} | "
+                  f"ICBHI={val_metrics['icbhi_score']:.3f}")
 
             icbhi = val_metrics["icbhi_score"]
             if icbhi > best_icbhi:
                 best_icbhi, best_state_dict, best_epoch = icbhi, model.state_dict(), epoch
                 ckpt_path = (
                     f"checkpoints/{epoch}_"
-                    # f"Crack_Se={val_metrics['Crackle_sensitivity']:.2f}_"
-                    # f"Crack_Sp={val_metrics['Crackle_specificity']:.2f}_"
-                    # f"Whz_Se={val_metrics['Wheeze_sensitivity']:.2f}_"
-                    # f"Whz_Sp={val_metrics['Wheeze_specificity']:.2f}_"
-                    f"Sp={val_metrics['specificity']:.2f}_"
-                    f"Se={val_metrics['sensitivity']:.2f}_"
-                    f"ICBHI={icbhi:.2f}_"
+                    # f"Crack_Se={val_metrics['Crackle_sensitivity']:.3f}_"
+                    # f"Crack_Sp={val_metrics['Crackle_specificity']:.3f}_"
+                    # f"Whz_Se={val_metrics['Wheeze_sensitivity']:.3f}_"
+                    # f"Whz_Sp={val_metrics['Wheeze_specificity']:.3f}_"
+                    f"Sp={val_metrics['specificity']:.3f}_"
+                    f"Se={val_metrics['sensitivity']:.3f}_"
+                    f"ICBHI={icbhi:.3f}_"
                     f"fold{fold_idx or 0}_best.pt"
                 )
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
                 torch.save(best_state_dict, ckpt_path)
                 mlflow.log_artifact(ckpt_path, artifact_path="model_checkpoints")
-                print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi*100:.2f})")
+                print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi*100:.3f})")
 
         # --- SCHEDULER & WEIGHT DECAY ---
         if scheduler:
@@ -528,7 +528,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     # --- LOAD BEST MODEL FOR TESTING ---
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
-        print(f"Loaded best model from Epoch {best_epoch} (ICBHI={best_icbhi:.2f})")
+        print(f"Loaded best model from Epoch {best_epoch} (ICBHI={best_icbhi:.3f})")
     else:
         print("No validation set provided — using last epoch weights.")
         best_state_dict = model.state_dict()
@@ -548,13 +548,13 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 mlflow.log_metric(f"{prefix}_{group}_{mk}", mv)
 
         print(f"[{prefix}] Final | "
-              f"Loss={test_loss:.4f} | "
-              f"Normal(Se/Sp)={test_metrics['Normal_sensitivity']:.2f}/{test_metrics['Normal_specificity']:.2f} | "
-              f"Crackles(Se/Sp)={test_metrics['Crackle_sensitivity']:.2f}/{test_metrics['Crackle_specificity']:.2f} | "
-              f"Wheezes(Se/Sp)={test_metrics['Wheeze_sensitivity']:.2f}/{test_metrics['Wheeze_specificity']:.2f} | "
-              f"Both(Se/Sp)={test_metrics['Both_sensitivity']:.2f}/{test_metrics['Both_specificity']:.2f} | "
-              f"Sensitivity={test_metrics['sensitivity']:.2f}/Specificity={test_metrics['specificity']:.2f} | "
-              f"ICBHI={test_metrics['icbhi_score']:.2f}")
+              f"Loss={test_loss:.3f} | "
+              f"Normal(Se/Sp)={test_metrics['Normal_sensitivity']:.3f}/{test_metrics['Normal_specificity']:.3f} | "
+              f"Crackles(Se/Sp)={test_metrics['Crackle_sensitivity']:.3f}/{test_metrics['Crackle_specificity']:.3f} | "
+              f"Wheezes(Se/Sp)={test_metrics['Wheeze_sensitivity']:.3f}/{test_metrics['Wheeze_specificity']:.3f} | "
+              f"Both(Se/Sp)={test_metrics['Both_sensitivity']:.3f}/{test_metrics['Both_specificity']:.3f} | "
+              f"Sensitivity={test_metrics['sensitivity']:.3f}/Specificity={test_metrics['specificity']:.3f} | "
+              f"ICBHI={test_metrics['icbhi_score']:.3f}")
 
         # === SUMMARY TABLE (PER DEVICE / SITE) ===
         try:
@@ -595,7 +595,7 @@ def main_single():
     
     print(f"Using model: {MODEL_KEY}")
 
-    # Set seed for reproducibility
+    # Set seed for reproducibilit
     set_seed(cfg.seed)
 
     # Build Dataset
@@ -616,7 +616,7 @@ def main_single():
     mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
     # Start MLFlow experiment
     mlflow.set_experiment(experiment_id=get_or_create_experiment(mlflow_cfg.experiment_name))
-    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep-BCE-tune-thresh"
+    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep-BCE-tune-thresh-best-base-params"
 
     with mlflow.start_run(run_name=run_name):
 

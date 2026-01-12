@@ -82,10 +82,10 @@ def build_model(
             num_devices=num_devices,
             num_sites=num_sites,
             dev_emb_dim=getattr(model_cfg, "dev_emb_dim", 4),
-            site_emb_dim=getattr(model_cfg, "site_emb_dim", 4),
+            site_emb_dim=getattr(model_cfg, "site_emb_dim", 7),
             rest_dim=rest_dim,
-            hidden_dim=getattr(model_cfg, "hidden_dim", 64),
-            dropout_p=getattr(model_cfg, "dropout", 0.3),
+            hidden_dim=getattr(model_cfg, "hidden_dim", 32),
+            dropout_p=getattr(model_cfg, "dropout", 0.0),
             num_labels=getattr(model_cfg, "label_dim", 2),
         )
 
@@ -122,6 +122,9 @@ def build_model(
             dropout_p=getattr(model_cfg, "dropout", 0.3),
             num_labels=getattr(model_cfg, "label_dim", 2),
             debug_film=getattr(model_cfg, "debug_film", False),
+            condition_on_device=getattr(model_cfg, "condition_on_device", True),
+            condition_on_site=getattr(model_cfg, "condition_on_site", True),
+            condition_on_rest=getattr(model_cfg, "condition_on_rest", True),
         )
 
     # ---------- AST + FiLM++ (grouped) ----------
