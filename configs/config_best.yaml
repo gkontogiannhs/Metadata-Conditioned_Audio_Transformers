@@ -11,7 +11,7 @@ dataset:
   n_cls: 4
   weighted_sampler: true
   batch_size: 16
-  num_workers: 2
+  num_workers: 0
   h: 128
   w: 1024
 
@@ -31,13 +31,13 @@ audio:
   frame_length: 40
   frame_shift: 10
   low_freq: 100
-  high_freq: 8000
+  high_freq: 5000
   window_type: hanning
   use_energy: false
   dither: 0.0
   mel_norm: mit # hf, mit, None
   
-  resz: 1.0 # spectrogram resize factor (1.0 = no resize)
+  resz: 1.0
   # Augmentation
   raw_augment: 1
   wave_aug:
@@ -130,15 +130,12 @@ models:
     imagenet_pretrain: true
     label_dim: 2
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.0
+    dropout: 0.3
     dev_emb_dim: 4
     site_emb_dim: 4
-    metadata_hidden_dim: 32
-    film_hidden_dim: 32
-    conditioned_layers: [12]
-    condition_on_device: True
-    condition_on_site: True
-    condition_on_rest: false
+    metadata_hidden_dim: 64
+    film_hidden_dim: 64
+    conditioned_layers: [10, 11, 12]
 
   ast_filmpp:
     name: ast_filmpp
@@ -154,11 +151,11 @@ models:
     dropout: 0.0
     dev_emb_dim: 4
     site_emb_dim: 7
-    metadata_hidden_dim: 16
-    film_hidden_dim: 16
+    metadata_hidden_dim: 32
+    film_hidden_dim: 32
     conditioned_layers: [12]
-    D_dev: 32
-    D_site: 32
+    D_dev: 64
+    D_site: 64
 
 training:
   # model_name: ast
@@ -174,7 +171,7 @@ training:
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 3          # which GPU among visible ones to use
+    device_id: 2           # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
