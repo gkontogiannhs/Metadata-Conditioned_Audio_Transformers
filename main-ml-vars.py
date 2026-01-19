@@ -206,7 +206,7 @@ def find_best_thresholds_icbhi(val_labels_ml, val_probs_ml, grid=np.linspace(0.0
             sp, se, hs = _icbhi_from_bits(y_true, y_pred)
             if hs > best["icbhi_score"]:
                 best.update({"tC": float(tC), "tW": float(tW),
-                             "specificity": float(sp), "sensitivity": float(se), "icbhi_score": float(hs)})
+                             "specificity": sp, "sensitivity": se, "icbhi_score": hs})
     return best
 
 # ============================================================
@@ -275,13 +275,13 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 
         # subgroup metrics
         for d, s, y_true, y_pred, y_prob in zip(devices, sites, labels_np, preds, probs):
-            group_preds[f"device::{d}"].append(y_pred)
-            group_labels[f"device::{d}"].append(y_true)
-            group_probs[f"device::{d}"].append(y_prob)
+            group_preds[f"device_{d}"].append(y_pred)
+            group_labels[f"device_{d}"].append(y_true)
+            group_probs[f"device_{d}"].append(y_prob)
 
-            group_preds[f"site::{s}"].append(y_pred)
-            group_labels[f"site::{s}"].append(y_true)
-            group_probs[f"site::{s}"].append(y_prob)
+            group_preds[f"site_{s}"].append(y_pred)
+            group_labels[f"site_{s}"].append(y_true)
+            group_probs[f"site_{s}"].append(y_prob)
 
     # ----- Global metrics -----
     avg_loss = total_loss / n_samples
@@ -348,10 +348,10 @@ def evaluate(model, dataloader, criterion, device,
 
             # Collect subgroup predictions
             for d, s, y_true, y_prob in zip(devices, sites, labels_np, probs):
-                group_labels[f"device::{d}"].append(y_true)
-                group_probs[f"device::{d}"].append(y_prob)
-                group_labels[f"site::{s}"].append(y_true)
-                group_probs[f"site::{s}"].append(y_prob)
+                group_labels[f"device_{d}"].append(y_true)
+                group_probs[f"device_{d}"].append(y_prob)
+                group_labels[f"site_{s}"].append(y_true)
+                group_probs[f"site_{s}"].append(y_prob)
 
     all_probs = np.array(all_probs)
     all_labels = np.array(all_labels)
@@ -425,6 +425,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     initial_wd = float(cfg.optimizer.weight_decay)
     final_wd = float(cfg.optimizer.final_weight_decay)
     lr = float(cfg.optimizer.lr)
+    
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=initial_wd)
     scheduler = build_scheduler(cfg.scheduler, cfg.epochs, optimizer)
     scaler = torch.amp.GradScaler(device.type)
@@ -446,14 +447,16 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         )
 
         prefix = "Train" if fold_idx is None else f"Train_Fold{fold_idx}"
+
         mlflow.log_metric(f"{prefix}_loss", train_loss, step=epoch)
+        
         for k, v in train_metrics.items():
             mlflow.log_metric(f"{prefix}_{k}", v, step=epoch)
 
         # Log per-device/site training metrics
-        for group, metrics_dict in train_metrics_groups.items():
-            for mk, mv in metrics_dict.items():
-                mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
+        # for group, metrics_dict in train_metrics_groups.items():
+        #     for mk, mv in metrics_dict.items():
+        #         mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
 
         print(f"[{prefix}][Epoch {epoch}] "
               f"Loss={train_loss:.3f} | "
@@ -470,13 +473,15 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 
             prefix = "Val" if fold_idx is None else f"Val_Fold{fold_idx}"
             mlflow.log_metric(f"{prefix}_loss", val_loss, step=epoch)
+            
             for k, v in val_metrics.items():
                 mlflow.log_metric(f"{prefix}_{k}", v, step=epoch)
 
             # Log per-device/site validation metrics
-            for group, metrics_dict in val_metrics_groups.items():
-                for mk, mv in metrics_dict.items():
-                    mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
+            # for group, metrics_dict in val_metrics_groups.items():
+            #     for mk, mv in metrics_dict.items():
+            #         print(mk, mv)
+            #         mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
 
             print(f"[{prefix}][Epoch {epoch}] "
                   f"Loss={val_loss:.3f} | "
@@ -543,9 +548,9 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
             mlflow.log_metric(f"{prefix}_{k}", v)
 
         # Log per-device/site test metrics
-        for group, metrics_dict in test_metrics_groups.items():
-            for mk, mv in metrics_dict.items():
-                mlflow.log_metric(f"{prefix}_{group}_{mk}", mv)
+        # for group, metrics_dict in test_metrics_groups.items():
+        #     for mk, mv in metrics_dict.items():
+        #         mlflow.log_metric(f"{prefix}_{group}_{mk}", mv)
 
         print(f"[{prefix}] Final | "
               f"Loss={test_loss:.3f} | "
@@ -591,11 +596,11 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
 def main_single():
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
-    MODEL_KEY = "ast_film"  # Options: "cnn6", "ast", "simplerespcnn", "ast_proj", "ast_film", "ast_filmpp"
+    MODEL_KEY = "ast"  # Options: "cnn6", "ast", "simplerespcnn", "ast_proj", "ast_film", "ast_filmpp"
     
     print(f"Using model: {MODEL_KEY}")
 
-    # Set seed for reproducibilit
+    # Set seed for reproducibility
     set_seed(cfg.seed)
 
     # Build Dataset

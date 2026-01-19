@@ -30,7 +30,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
     all_preds, all_labels, all_probs = [], [], []
     
     for batch in tqdm(dataloader, desc=f"[Train][Epoch {epoch}]", leave=False):
-        inputs, labels = batch["input_values"].to(device), batch["labels"].to(device)
+        inputs, labels = batch["input_values"].to(device), batch["label"].to(device)
 
         optimizer.zero_grad(set_to_none=False)
         with torch.amp.autocast(device.type):
@@ -59,6 +59,21 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 
     return avg_loss, metrics
 
+
+def set_visible_gpus(gpus: str, verbose: bool = True):
+    """
+    Restrict which GPUs PyTorch can see by setting CUDA_VISIBLE_DEVICES.
+
+    Args:
+        gpus (str): Comma-separated GPU indices, e.g., "0,1,2,3".
+        verbose (bool): If True, print the selection info.
+    """
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+    if verbose:
+        print(f"[CUDA] Visible devices set to: {gpus}")
+
+    # Optional sanity check after setting
+    torch.cuda.device_count()  # forces CUDA to reinitialize
 
 # ------------------------------------------------------
 # Main training loops

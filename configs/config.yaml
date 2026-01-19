@@ -132,13 +132,13 @@ models:
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.0
     dev_emb_dim: 4
-    site_emb_dim: 4
+    site_emb_dim: 7
     metadata_hidden_dim: 32
     film_hidden_dim: 32
     conditioned_layers: [12]
     condition_on_device: True
     condition_on_site: True
-    condition_on_rest: false
+    condition_on_rest: True
 
   ast_filmpp:
     name: ast_filmpp
@@ -174,7 +174,7 @@ training:
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 3          # which GPU among visible ones to use
+    device_id: 4          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
@@ -188,7 +188,7 @@ training:
 
   scheduler:
     type: cosine_warmup        # options: none, cosine, cosine_warmup, reduce_on_plateau, cosine_warmup_restarts
-    warmup_epochs: 3         # used only for warmup
+    warmup_epochs: 0         # used only for warmup
     T_0: 20               # used only for cosine_*
     start_linear_warmup: 1e-4
     end_linear_warmup: 1
