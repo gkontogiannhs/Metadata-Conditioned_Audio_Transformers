@@ -167,14 +167,14 @@ training:
   # alpha: 0.25
   gamma: 2.0
   use_class_weights: false
-  epochs: 100
+  epochs: 1
   kfold_splits: 5
   early_stopping: 15
   grad_clip: 1.0
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 4          # which GPU among visible ones to use
+    device_id: 6          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
