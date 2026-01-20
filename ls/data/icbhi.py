@@ -401,6 +401,38 @@ class ICBHIDataset(Dataset):
         }
 
         return stats
+    
+    def get_sample_weights(self):
+        """
+        Compute per-sample weights dynamically based on current mode.
+        - In multi-class mode → inverse class frequency
+        - In multi-label mode → inverse label frequency
+        """
+        if not self.train:
+            return None
+
+        if not self.multi_label:
+            # Original 4-class weighting
+            class_counts = np.bincount([s["label"] for s in self.samples], minlength=self.dataset_cfg.n_cls)
+            inv_freq = 1.0 / (class_counts + 1e-6)
+            weights = [inv_freq[s["label"]] for s in self.samples]
+            return np.array(weights) / np.sum(weights)
+        else:
+            # Multi-label weighting
+            labels_ml = np.array([s["multi_label"] for s in self.samples])
+            label_freq = labels_ml.sum(axis=0).astype(float)
+            inv_freq = 1.0 / (label_freq + 1e-6)
+            inv_freq = inv_freq / inv_freq.sum()
+
+            sample_weights = []
+            for vec in labels_ml:
+                if vec.sum() == 0:  # Normal
+                    w = min(inv_freq) * 0.5
+                else:
+                    w = np.sum(inv_freq[vec == 1])
+                sample_weights.append(w)
+
+            return np.array(sample_weights) / np.sum(sample_weights)
 
     # ============================================================
     # VALIDATION
@@ -524,35 +556,6 @@ class ICBHIDataset(Dataset):
 
     def __len__(self):
         return len(self.samples)
-
-    # def get_sample_weights(self):
-    #     """Compute per-sample weights for balanced sampling."""
-        
-    #     if not self.train:
-    #         return None
-
-    #     if not self.multi_label:
-    #         # 4-class weighting
-    #         class_counts = np.bincount([s["label"] for s in self.samples], minlength=self.dataset_cfg.n_cls)
-    #         inv_freq = 1.0 / (class_counts + 1e-6)
-    #         weights = [inv_freq[s["label"]] for s in self.samples]
-    #         return np.array(weights) / np.sum(weights)
-    #     else:
-    #         # Multi-label weighting
-    #         labels_ml = np.array([s["multi_label"] for s in self.samples])
-    #         label_freq = labels_ml.sum(axis=0).astype(float)
-    #         inv_freq = 1.0 / (label_freq + 1e-6)
-    #         inv_freq = inv_freq / inv_freq.sum()
-
-    #         sample_weights = []
-    #         for vec in labels_ml:
-    #             if vec.sum() == 0:
-    #                 w = min(inv_freq) * 0.5
-    #             else:
-    #                 w = np.sum(inv_freq[vec == 1])
-    #             sample_weights.append(w)
-
-    #         return np.array(sample_weights) / np.sum(sample_weights)
 
     def __repr__(self):
         return (f"{self.__class__.__name__}(train={self.train}, "
