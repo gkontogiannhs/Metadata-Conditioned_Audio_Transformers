@@ -112,11 +112,11 @@ class ICBHIDataset(Dataset):
             print(f"{'='*70}\n")
 
     # ============================================================
-    # ROBUST METADATA LOADING
+    # METADATA LOADING
     # ============================================================
 
     def _load_cycle_metadata_tsv(self, path: str):
-        """Load metadata TSV with robust missing value handling."""
+        """Load metadata TSV with missing value handling."""
         
         if not os.path.exists(path):
             raise FileNotFoundError(f"Cycle metadata TSV not found: {path}")
@@ -197,7 +197,7 @@ class ICBHIDataset(Dataset):
                 "disease": str(r["Disease"]),
             }
 
-        # Build vocabularies
+        # Build vocabularies/vectors for categorical features (site, device)
         site2id = {s: i for i, s in enumerate(sorted(set(df["AuscLoc"].astype(str))))}
         device2id = {d: i for i, d in enumerate(sorted(set(df["Device"].astype(str))))}
 
@@ -379,7 +379,7 @@ class ICBHIDataset(Dataset):
         return samples
 
     # ============================================================
-    # STATISTICS COMPUTATION (CRITICAL FOR NORMALIZATION)
+    # STATISTICS COMPUTATION
     # ============================================================
 
     def _compute_continuous_statistics(self) -> Dict[str, Tuple[float, float]]:
@@ -550,7 +550,7 @@ class ICBHIDataset(Dataset):
         if self.multi_label:
             out["label"] = torch.tensor(sample["multi_label"], dtype=torch.float32)
         else:
-            out["label"] = sample["label"]
+            out["label"] = torch.tensor(sample["label"], dtype=torch.long)
 
         return out
 
