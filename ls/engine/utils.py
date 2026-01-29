@@ -1,145 +1,223 @@
 import torch
-import random
-import numpy as np
-import torch.nn as nn
-from ls.config.dataclasses import TrainingConfig
-
-
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, gamma=2, alpha=None, reduction='mean', task_type='binary', num_classes=None):
-        """
-        Unified Focal Loss class for binary, multi-class, and multi-label classification tasks.
-        :param gamma: Focusing parameter, controls the strength of the modulating factor (1 - p_t)^gamma
-        :param alpha: Balancing factor, can be a scalar or a tensor for class-wise weights. If None, no class balancing is used.
-        :param reduction: Specifies the reduction method: 'none' | 'mean' | 'sum'
-        :param task_type: Specifies the type of task: 'binary', 'multi-class', or 'multi-label'
-        :param num_classes: Number of classes (only required for multi-class classification)
-        """
-        super(FocalLoss, self).__init__()
-        self.gamma = gamma
+    """
+    Focal Loss for multi-label classification.
+    Focuses learning on hard examples by down-weighting easy ones.
+    
+    Paper: https://arxiv.org/abs/1708.02002
+    
+    Args:
+        alpha: Balancing factor for positive/negative examples
+        gamma: Focusing parameter (higher = more focus on hard examples)
+        reduction: 'mean', 'sum', or 'none'
+    """
+    
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
+        super().__init__()
         self.alpha = alpha
+        self.gamma = gamma
         self.reduction = reduction
-        self.task_type = task_type
-        self.num_classes = num_classes
+    
+    def forward(self, logits, targets):
+        bce = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
+        probs = torch.sigmoid(logits)
+        pt = targets * probs + (1 - targets) * (1 - probs)
+        focal_weight = (1 - pt) ** self.gamma
+        
+        # Alpha weighting
+        alpha_weight = targets * self.alpha + (1 - targets) * (1 - self.alpha)
+        
+        loss = alpha_weight * focal_weight * bce
+        
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        return loss
 
-        # Handle alpha for class balancing in multi-class tasks
-        if task_type == 'multi-class' and alpha is not None and isinstance(alpha, (list, torch.Tensor)):
-            assert num_classes is not None, "num_classes must be specified for multi-class classification"
-            if isinstance(alpha, list):
-                self.alpha = torch.Tensor(alpha)
-            else:
-                self.alpha = alpha
 
-    def forward(self, inputs, targets):
-        """
-        Forward pass to compute the Focal Loss based on the specified task type.
-        :param inputs: Predictions (logits) from the model.
-                       Shape:
-                         - binary/multi-label: (batch_size, num_classes)
-                         - multi-class: (batch_size, num_classes)
-        :param targets: Ground truth labels.
-                        Shape:
-                         - binary: (batch_size,)
-                         - multi-label: (batch_size, num_classes)
-                         - multi-class: (batch_size,)
-        """
-        if self.task_type == 'binary':
-            return self.binary_focal_loss(inputs, targets)
-        elif self.task_type == 'multi-class':
-            return self.multi_class_focal_loss(inputs, targets)
-        elif self.task_type == 'multi-label':
-            return self.multi_label_focal_loss(inputs, targets)
+class AsymmetricLoss(nn.Module):
+    def __init__(self, gamma_neg=2, gamma_pos=1, clip=0.01, reduction='mean', eps=1e-8):
+        super().__init__()
+        self.gamma_neg = gamma_neg
+        self.gamma_pos = gamma_pos
+        self.clip = clip
+        self.reduction = reduction
+        self.eps = eps
+    
+    def forward(self, logits, targets):
+        probs = torch.sigmoid(logits)
+        
+        # Asymmetric clipping: SUBTRACT margin from negative probabilities
+        # This down-weights easy negatives (where prob is already low)
+        probs_neg = (probs - self.clip).clamp(min=0)
+        
+        # Positive part: standard focal-style loss
+        loss_pos = targets * torch.log(probs.clamp(min=self.eps)) * ((1 - probs) ** self.gamma_pos)
+        
+        # Negative part: use clipped probabilities
+        loss_neg = (1 - targets) * torch.log((1 - probs_neg).clamp(min=self.eps)) * (probs_neg ** self.gamma_neg)
+        
+        loss = -loss_pos - loss_neg
+        
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        return loss
+
+
+class FocalLossCE(nn.Module):
+    """
+    Focal Loss for multi-class (single-label) classification.
+    
+    Args:
+        gamma: Focusing parameter
+        weight: Optional class weights tensor
+        reduction: 'mean', 'sum', or 'none'
+    """
+    
+    def __init__(self, gamma=2.0, weight=None, reduction='mean'):
+        super().__init__()
+        self.gamma = gamma
+        self.weight = weight
+        self.reduction = reduction
+    
+    def forward(self, logits, targets):
+        ce_loss = F.cross_entropy(logits, targets, weight=self.weight, reduction='none')
+        probs = F.softmax(logits, dim=1)
+        pt = probs.gather(1, targets.unsqueeze(1)).squeeze(1)
+        focal_weight = (1 - pt) ** self.gamma
+        
+        loss = focal_weight * ce_loss
+        
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        return loss
+
+
+def build_criterion(cfg, device=None):
+    """
+    Build loss function based on configuration.
+    
+    Supports:
+        Multi-label mode:
+            - 'bce': Standard BCEWithLogitsLoss
+            - 'weighted_bce': BCEWithLogitsLoss with pos_weight
+            - 'focal': Focal Loss
+            - 'asymmetric': Asymmetric Loss
+        
+        Multi-class mode:
+            - 'ce': Standard CrossEntropyLoss
+            - 'weighted_ce': CrossEntropyLoss with class weights
+            - 'focal_ce': Focal Loss for multi-class
+    
+    Config example:
+        loss:
+            type: asymmetric
+            gamma_neg: 4
+            gamma_pos: 1
+            clip: 0.05
+    
+    Args:
+        cfg: Configuration object with cfg.dataset.multi_label and cfg.loss
+        device: Device to move weight tensors to
+    
+    Returns:
+        nn.Module: Loss function
+    """
+    multi_label = True # cfg.dataset.multi_label
+    # Get loss config (with defaults)
+    loss_cfg = getattr(cfg, 'loss', None)
+    print(f"User wants to use {loss_cfg} loss function.")
+    # if loss_cfg is None:
+    #     loss_type = 'default'
+    # else:
+    #     loss_type = getattr(loss_cfg, 'type', 'default')
+    
+    print(f"[Loss] Building criterion: type={loss_cfg}, multi_label={multi_label}")
+    
+    # ============================================================
+    # MULTI-LABEL LOSSES
+    # ============================================================
+    if multi_label:
+        if loss_cfg in ['default', 'bce']:
+            print(f"[Loss] Using BCEWithLogitsLoss")
+            return nn.BCEWithLogitsLoss()
+        
+        elif loss_cfg == 'weighted_bce':
+            # pos_weight: weight for positive class (>1 increases recall)
+            # e.g., [2.0, 3.0] means crackle pos weighted 2x, wheeze 3x
+            pos_weight = getattr(loss_cfg, 'pos_weight', [1.0, 1.0])
+            pos_weight = torch.tensor(pos_weight, dtype=torch.float32)
+            if device:
+                pos_weight = pos_weight.to(device)
+            print(f"[Loss] Using Weighted BCEWithLogitsLoss with pos_weight={pos_weight.tolist()}")
+            return nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        
+        elif loss_cfg == 'focal':
+            alpha = getattr(loss_cfg, 'alpha', 0.25)
+            gamma = getattr(loss_cfg, 'gamma', 2.0)
+            print(f"[Loss] Using FocalLoss with alpha={alpha}, gamma={gamma}")
+            return FocalLoss(alpha=alpha, gamma=gamma)
+        
+        elif loss_cfg == 'asymmetric':
+            gamma_neg = getattr(loss_cfg, 'gamma_neg', 4)
+            gamma_pos = getattr(loss_cfg, 'gamma_pos', 1)
+            clip = getattr(loss_cfg, 'clip', 0.05)
+            print(f"[Loss] Using AsymmetricLoss with gamma_neg={gamma_neg}, gamma_pos={gamma_pos}, clip={clip}")
+            return AsymmetricLoss(gamma_neg=gamma_neg, gamma_pos=gamma_pos, clip=clip)
+        
         else:
-            raise ValueError(
-                f"Unsupported task_type '{self.task_type}'. Use 'binary', 'multi-class', or 'multi-label'.")
+            raise ValueError(f"Unknown multi-label loss type: {loss_cfg}")
+    
+    # ============================================================
+    # MULTI-CLASS LOSSES
+    # ============================================================
+    else:
+        if loss_cfg in ['default', 'ce']:
+            print(f"[Loss] Using CrossEntropyLoss")
+            return nn.CrossEntropyLoss()
+        
+        elif loss_cfg == 'weighted_ce':
+            # class_weights: inverse frequency weights
+            # e.g., [0.5, 1.5, 2.0, 2.5] for [normal, crackle, wheeze, both]
+            class_weights = getattr(loss_cfg, 'class_weights', None)
+            if class_weights is None:
+                raise ValueError("weighted_ce requires loss.class_weights in config")
+            class_weights = torch.tensor(class_weights, dtype=torch.float32)
+            if device:
+                class_weights = class_weights.to(device)
+            print(f"[Loss] Using Weighted CrossEntropyLoss with weights={class_weights.tolist()}")
+            return nn.CrossEntropyLoss(weight=class_weights)
+        
+        elif loss_cfg in ['focal', 'focal_ce']:
+            gamma = getattr(loss_cfg, 'gamma', 2.0)
+            class_weights = getattr(loss_cfg, 'class_weights', None)
+            if class_weights is not None:
+                class_weights = torch.tensor(class_weights, dtype=torch.float32)
+                if device:
+                    class_weights = class_weights.to(device)
+            print(f"[Loss] Using FocalLossCE with gamma={gamma}, weights={class_weights}")
+            return FocalLossCE(gamma=gamma, weight=class_weights)
+        
+        else:
+            raise ValueError(f"Unknown multi-class loss type: {loss_cfg}")
+        
 
-    def binary_focal_loss(self, inputs, targets):
-        """ Focal loss for binary classification. """
-        probs = torch.sigmoid(inputs)
-        targets = targets.float()
-
-        # Compute binary cross entropy
-        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-
-        # Compute focal weight
-        p_t = probs * targets + (1 - probs) * (1 - targets)
-        focal_weight = (1 - p_t) ** self.gamma
-
-        # Apply alpha if provided
-        if self.alpha is not None:
-            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-            bce_loss = alpha_t * bce_loss
-
-        # Apply focal loss weighting
-        loss = focal_weight * bce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        return loss
-
-    def multi_class_focal_loss(self, inputs, targets):
-        """ Focal loss for multi-class classification. """
-        if self.alpha is not None:
-            alpha = self.alpha.to(inputs.device)
-
-        # Convert logits to probabilities with softmax
-        probs = F.softmax(inputs, dim=1)
-
-        # One-hot encode the targets
-        targets_one_hot = F.one_hot(targets, num_classes=self.num_classes).float()
-
-        # Compute cross-entropy for each class
-        ce_loss = -targets_one_hot * torch.log(probs)
-
-        # Compute focal weight
-        p_t = torch.sum(probs * targets_one_hot, dim=1)  # p_t for each sample
-        focal_weight = (1 - p_t) ** self.gamma
-
-        # Apply alpha if provided (per-class weighting)
-        if self.alpha is not None:
-            alpha_t = alpha.gather(0, targets)
-            ce_loss = alpha_t.unsqueeze(1) * ce_loss
-
-        # Apply focal loss weight
-        loss = focal_weight.unsqueeze(1) * ce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        return loss
-
-    def multi_label_focal_loss(self, inputs, targets):
-        """ Focal loss for multi-label classification. """
-        probs = torch.sigmoid(inputs)
-
-        # Compute binary cross entropy
-        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-
-        # Compute focal weight
-        p_t = probs * targets + (1 - probs) * (1 - targets)
-        focal_weight = (1 - p_t) ** self.gamma
-
-        # Apply alpha if provided
-        if self.alpha is not None:
-            alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
-            bce_loss = alpha_t * bce_loss
-
-        # Apply focal loss weight
-        loss = focal_weight * bce_loss
-
-        if self.reduction == 'mean':
-            return loss.mean()
-        elif self.reduction == 'sum':
-            return loss.sum()
-        return loss
+def set_visible_gpus(gpus: str, verbose: bool = True):
+    """Restrict which GPUs PyTorch can see."""
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+    if verbose:
+        print(f"[CUDA] Visible devices set to: {gpus}")
+    torch.cuda.device_count()
 
 
 def set_seed(seed: int = 42, deterministic: bool = True, verbose: bool = True):
@@ -152,6 +230,8 @@ def set_seed(seed: int = 42, deterministic: bool = True, verbose: bool = True):
         deterministic (bool): Whether to enforce deterministic behavior.
         verbose (bool): Print confirmation if True.
     """
+    import random
+    import numpy as np
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -207,106 +287,3 @@ def get_device(device_id: int = 0, verbose: bool = True) -> torch.device:
             print("[Device] Using CPU (no GPU backend found)")
 
     return device
-
-def multilabel_icbhi_loss(logits, targets, lambda_joint=0.1, gamma=1.5):
-    """
-    BCEWithLogits + joint-consistency + optional focal weighting.
-    Safe for autocast mixed precision.
-    logits: (B, 2)
-    targets: (B, 2)
-    """
-    # ---- Base BCE (logits version) ----
-    bce_loss = F.binary_cross_entropy_with_logits(logits, targets, reduction='none')
-
-    # ---- Focal scaling ----
-    pt = torch.exp(-bce_loss)
-    focal_loss = ((1 - pt) ** gamma) * bce_loss
-    focal_loss = focal_loss.mean()
-
-    # ---- Joint consistency term ----
-    # Work directly on probabilities for interpretability
-    probs = torch.sigmoid(logits)
-    y_both = (targets[:, 0] * targets[:, 1]).unsqueeze(1)  # (B, 1)
-    p_both = (probs[:, 0] * probs[:, 1]).unsqueeze(1)
-
-    # Still safe — use _with_logits form for consistency
-    # Convert p_both back to logits for stability:
-    eps = 1e-7
-    p_both_clamped = torch.clamp(p_both, eps, 1 - eps)
-    logits_both = torch.log(p_both_clamped / (1 - p_both_clamped))
-
-    joint_loss = F.binary_cross_entropy_with_logits(logits_both, y_both)
-
-    # ---- Combine ----
-    total_loss = focal_loss + lambda_joint * joint_loss
-    return total_loss
-
-
-def get_loss(cfg: TrainingConfig, device: torch.device, class_weights: torch.Tensor = None):
-    """
-    Return loss function based on config and optional per-fold class weights.
-
-    Args:
-        cfg: Configuration object (Box or dataclass-like)
-        device: torch.device
-        class_weights: torch.Tensor or None (computed dynamically per fold)
-
-    Returns:
-        torch.nn.Module: Configured loss function
-    """
-    loss_type = getattr(cfg, "loss", "cross_entropy")
-
-    # -------------------------------
-    # 1) Standard Cross Entropy
-    # -------------------------------
-    if loss_type == "cross_entropy":
-        return nn.CrossEntropyLoss().to(device)
-
-    # -------------------------------
-    # 2) Weighted Cross Entropy
-    # -------------------------------
-    elif loss_type == "weighted_ce":
-        # Priority: dynamically computed weights > static config weights
-        if class_weights is not None:
-            # class_weights = torch.tensor(class_weights, dtype=torch.float32).to(device)
-            print(f"[INFO] Using dynamically computed class weights: {class_weights.cpu().numpy().round(3).tolist()}")
-        elif hasattr(cfg, "class_weights") and len(cfg.class_weights) > 0:
-            class_weights = torch.tensor(cfg.class_weights, dtype=torch.float32).to(device)
-            print(f"[INFO] Using static class weights from config: {class_weights.cpu().numpy().round(3).tolist()}")
-        else:
-            raise ValueError(
-                "Weighted CE loss selected but no class weights provided. "
-                "Either compute them dynamically or specify cfg.class_weights."
-            )
-        return nn.CrossEntropyLoss(weight=class_weights).to(device)
-
-    # -------------------------------
-    # 3) Focal Loss
-    # -------------------------------
-    elif loss_type == "focal":
-        gamma = float(getattr(cfg, "gamma", 2.0))
-        # alpha = float(getattr(cfg, "alpha", None))
-        if class_weights is not None:
-            print(f"[INFO] Using dynamically computed class weights for Focal Loss: {class_weights.cpu().numpy().round(3).tolist()}")
-        else:
-            class_weights = torch.tensor([0.25] * 4, dtype=torch.float32).to(device)
-        num_classes = getattr(cfg, "n_cls", None)
-
-        return FocalLoss(
-            gamma=gamma,
-            alpha=class_weights,
-            num_classes=num_classes,
-            task_type="multi-class",
-        ).to(device)
-
-    # ------ multi-label loss
-    elif loss_type == "multi-label-bce":
-        return nn.BCEWithLogitsLoss().to(device)
-    elif loss_type == "multi-label-icbhi":
-        return
-
-    # -------------------------------
-    # 4) Unknown loss
-    # -------------------------------
-    else:
-        raise ValueError(f"Unknown loss type: {loss_type}")
