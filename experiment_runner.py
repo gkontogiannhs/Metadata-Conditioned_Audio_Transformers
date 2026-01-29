@@ -73,7 +73,7 @@ def get_experiment_configs():
                 "condition_on_device": True,
                 "condition_on_site": True,
                 "condition_on_rest": True,
-                "conditioned_layers": (10, 11),
+                "conditioned_layers": (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
             }
         },
         
@@ -263,7 +263,7 @@ def get_experiment_suites():
         "baseline": ["baseline_vanilla", "baseline_film_full"],
         
         "ablation": [
-            # "baseline_vanilla",
+            "baseline_vanilla",
             "ablation_device_only",
             "ablation_site_only",
             "ablation_continuous_only",
@@ -529,7 +529,7 @@ def visualize_checkpoint(checkpoint_path: str, cfg):
             "condition_on_device": True,
             "condition_on_site": True,
             "condition_on_rest": True,
-            "conditioned_layers": (10, 11),
+            "conditioned_layers": (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10),
             "use_improved_continuous_encoder": True,
         }
         

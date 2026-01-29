@@ -11,7 +11,7 @@ dataset:
   n_cls: 4
   weighted_sampler: true
   batch_size: 16
-  num_workers: 2
+  num_workers: 0
   h: 128
   w: 1024
 
@@ -91,95 +91,95 @@ models:
 
   ast:
     name: ast
-    audioset_pretrain: true
+    audioset_pretrain: True
     input_fdim: 128
     input_tdim: 1024
     model_size: base384
     fstride: 10
     tstride: 10
-    imagenet_pretrain: true
+    imagenet_pretrain: True
     label_dim: 2
     backbone_only: false
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.0
 
-  ast_proj:
-    name: ast_proj
-    audioset_pretrain: true
-    input_fdim: 128
-    input_tdim: 1024
-    model_size: base384
-    fstride: 10
-    tstride: 10
-    imagenet_pretrain: true
-    label_dim: 2
-    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.3
-    dev_emb_dim: 4
-    site_emb_dim: 4
-    hidden_dim: 64
+  # ast_proj:
+  #   name: ast_proj
+  #   audioset_pretrain: true
+  #   input_fdim: 128
+  #   input_tdim: 1024
+  #   model_size: base384
+  #   fstride: 10
+  #   tstride: 10
+  #   imagenet_pretrain: true
+  #   label_dim: 2
+  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+  #   dropout: 0.3
+  #   dev_emb_dim: 4
+  #   site_emb_dim: 4
+  #   hidden_dim: 64
 
-  ast_film:
-    name: ast_film
-    audioset_pretrain: true
-    input_fdim: 128
-    input_tdim: 1024
-    model_size: base384
-    fstride: 10
-    tstride: 10
-    imagenet_pretrain: true
-    label_dim: 2
-    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.0
-    dev_emb_dim: 4
-    site_emb_dim: 7
-    metadata_hidden_dim: 32
-    film_hidden_dim: 32
-    conditioned_layers: [12]
-    condition_on_device: True
-    condition_on_site: True
-    condition_on_rest: True
+  # ast_film:
+  #   name: ast_film
+  #   audioset_pretrain: true
+  #   input_fdim: 128
+  #   input_tdim: 1024
+  #   model_size: base384
+  #   fstride: 10
+  #   tstride: 10
+  #   imagenet_pretrain: true
+  #   label_dim: 2
+  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+  #   dropout: 0.5
+  #   dev_emb_dim: 4
+  #   site_emb_dim: 7
+  #   metadata_hidden_dim: 32
+  #   film_hidden_dim: 32 
+  #   conditioned_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  #   condition_on_device: True
+  #   condition_on_site: True
+  #   condition_on_rest: True
 
-  ast_filmpp:
-    name: ast_filmpp
-    audioset_pretrain: true
-    input_fdim: 128
-    input_tdim: 1024
-    model_size: base384
-    fstride: 10
-    tstride: 10
-    imagenet_pretrain: true
-    label_dim: 2
-    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-    dropout: 0.0
-    dev_emb_dim: 4
-    site_emb_dim: 7
-    metadata_hidden_dim: 16
-    film_hidden_dim: 16
-    conditioned_layers: [12]
-    D_dev: 32
-    D_site: 32
+  # ast_filmpp:
+  #   name: ast_filmpp
+  #   audioset_pretrain: true
+  #   input_fdim: 128
+  #   input_tdim: 1024
+  #   model_size: base384
+  #   fstride: 10
+  #   tstride: 10
+  #   imagenet_pretrain: true
+  #   label_dim: 2
+  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+  #   dropout: 0.5
+  #   dev_emb_dim: 4
+  #   site_emb_dim: 7
+  #   metadata_hidden_dim: 16
+  #   film_hidden_dim: 16
+  #   conditioned_layers: [12]
+  #   D_dev: 32
+  #   D_site: 32
 
 training:
   # model_name: ast
   n_cls: 2
-  loss: cross_entropy # cross_entropy, weighted_ce, focal, label_smoothing
+  loss: bce # (b)ce, weighted_ce, focal, label_smoothing, asymmetric
   # alpha: 0.25
   gamma: 2.0
   use_class_weights: false
-  epochs: 1
+  epochs: 40
   kfold_splits: 5
-  early_stopping: 15
+  early_stopping: 5
   grad_clip: 1.0
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 6          # which GPU among visible ones to use
+    device_id: 1          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
     type: adamw
-    lr: 3e-5 # 3e-5 * batch_size/8
+    lr: 3e-4
     weight_decay: 0.05 # only used if scheduler.cosine_weight_decay=false
     # momentum:
     # betas: # [0.9, 0.95]
@@ -188,7 +188,7 @@ training:
 
   scheduler:
     type: cosine_warmup        # options: none, cosine, cosine_warmup, reduce_on_plateau, cosine_warmup_restarts
-    warmup_epochs: 0         # used only for warmup
+    warmup_epochs: 3         # used only for warmup
     T_0: 20               # used only for cosine_*
     start_linear_warmup: 1e-4
     end_linear_warmup: 1
