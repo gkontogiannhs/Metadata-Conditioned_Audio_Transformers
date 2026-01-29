@@ -7,7 +7,7 @@ class ASTMetaProj(nn.Module):
     Metadata projection fusion:
         m = [E_dev(device_id), E_site(site_id), m_rest]
         m' = W m
-        h_tilde = h_CLS + m'
+        h_tilde = h_CLS + α · m'
     """
     def __init__(
         self,
@@ -20,18 +20,26 @@ class ASTMetaProj(nn.Module):
         hidden_dim: int = 64,
         dropout_p: float = 0.3,
         num_labels: int = 2,
+        init_gate: float = 0.1,
     ):
         super().__init__()
 
         self.ast = ASTModel(backbone_only=True, **ast_kwargs)
         D = self.ast.original_embedding_dim
 
-        # categorical encoders
-        self.dev_emb  = nn.Embedding(num_devices, dev_emb_dim)
+        # Categorical encoders
+        self.dev_emb = nn.Embedding(num_devices, dev_emb_dim)
         self.site_emb = nn.Embedding(num_sites, site_emb_dim)
 
         meta_dim = dev_emb_dim + site_emb_dim + rest_dim
-        self.metadata_proj = nn.Linear(meta_dim, D)
+        
+        self.metadata_proj = nn.Sequential(
+            nn.Linear(meta_dim, D),
+            nn.LayerNorm(D),
+        )
+        
+        # Learnable gate initialized small
+        self.gate = nn.Parameter(torch.tensor(init_gate))
 
         self.classifier = nn.Sequential(
             nn.LayerNorm(D),
@@ -39,23 +47,19 @@ class ASTMetaProj(nn.Module):
             nn.Linear(D, hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout_p),
-            nn.Linear(hidden_dim, num_labels)
+            nn.Linear(hidden_dim, num_labels),
         )
-    def forward(self, x, device_id, site_id, m_rest):
-        """
-        x:          (B, 1, F, T)
-        device_id:  (B,) long
-        site_id:    (B,) long
-        m_rest:     (B, rest_dim) float
-        """
-        h_cls = self.ast.forward_features(x) # (B, D)
 
-        dev  = self.dev_emb(device_id)
+    def forward(self, x, device_id, site_id, m_rest):
+        h_cls = self.ast.forward_features(x)
+
+        dev = self.dev_emb(device_id)
         site = self.site_emb(site_id)
 
         m = torch.cat([dev, site, m_rest], dim=-1)
         m_prime = self.metadata_proj(m)
 
-        h_tilde = h_cls + m_prime
+        h_tilde = h_cls + self.gate * m_prime
+        
         logits = self.classifier(h_tilde)
         return logits

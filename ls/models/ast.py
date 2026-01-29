@@ -93,7 +93,7 @@ class ASTModel(nn.Module):
             self.mlp_head = None
             if not backbone_only:
                 self.mlp_head = nn.Sequential(
-                    nn.LayerNorm(self.original_embedding_dim), 
+                    nn.LayerNorm(self.original_embedding_dim),
                     self.reg_dropout,
                     nn.Linear(self.original_embedding_dim, 64),  # Hidden layer
                     nn.ReLU(),

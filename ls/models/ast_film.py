@@ -71,7 +71,7 @@ class ASTFiLM(nn.Module):
         rest_dim: int,
         dev_emb_dim: int = 4,
         site_emb_dim: int = 4,
-        conditioned_layers=(10, 11),
+        conditioned_layers=(-1),
         metadata_hidden_dim: int = 64,
         film_hidden_dim: int = 64,
         dropout_p: float = 0.3,
@@ -292,26 +292,43 @@ class ASTFiLM(nn.Module):
             attn_out = blk.attn(blk.norm1(x))
             x = x + blk.drop_path(attn_out)
 
-            # Apply FiLM if this layer is conditioned
+            # FFN block with FiLM conditioning
+            normed = blk.norm2(x)
+            
+            # Apply FiLM after norm2, before MLP
             if layer_idx in self.conditioned_set:
                 if return_film_info:
-                    film_info['pre_film'][layer_idx] = x.clone()
-                
-                if self.debug_film:
-                    print(f"[FiLM] Applying to layer {layer_idx}")
+                    film_info['pre_film'][layer_idx] = normed.clone()
                 
                 g = gamma[layer_idx].unsqueeze(1)  # (B, 1, D)
                 b = beta[layer_idx].unsqueeze(1)   # (B, 1, D)
-                x = g * x + b
+                normed = g * normed + b
                 
                 if return_film_info:
-                    film_info['post_film'][layer_idx] = x.clone()
-                    delta = (film_info['post_film'][layer_idx] - 
-                            film_info['pre_film'][layer_idx]).norm(dim=-1).mean().item()
-                    film_info['modulation_magnitude'][layer_idx] = delta
+                    film_info['post_film'][layer_idx] = normed.clone()
 
-            # FFN block
-            x = x + blk.drop_path(blk.mlp(blk.norm2(x)))
+            x = x + blk.drop_path(blk.mlp(normed))
+
+        #     # Apply FiLM if this layer is conditioned
+        #     if layer_idx in self.conditioned_set:
+        #         if return_film_info:
+        #             film_info['pre_film'][layer_idx] = x.clone()
+                
+        #         if self.debug_film:
+        #             print(f"[FiLM] Applying to layer {layer_idx}")
+                
+        #         g = gamma[layer_idx].unsqueeze(1)  # (B, 1, D)
+        #         b = beta[layer_idx].unsqueeze(1)   # (B, 1, D)
+        #         x = g * x + b
+                
+        #         if return_film_info:
+        #             film_info['post_film'][layer_idx] = x.clone()
+        #             delta = (film_info['post_film'][layer_idx] - 
+        #                     film_info['pre_film'][layer_idx]).norm(dim=-1).mean().item()
+        #             film_info['modulation_magnitude'][layer_idx] = delta
+
+        #     # FFN block
+        #     x = x + blk.drop_path(blk.mlp(blk.norm2(x)))
 
         x = v.norm(x)
         h_cls = (x[:, 0] + x[:, 1]) / 2.0
@@ -361,7 +378,7 @@ class ASTFiLM(nn.Module):
         
         return logits, film_info
     
-    def freeze_backbone(self, until_block=None, freeze_film=False):
+    def freeze_backbone(self, until=None, freeze_film=False):
         """
         Freeze AST backbone (optionally keep FiLM trainable).
         
@@ -380,7 +397,7 @@ class ASTFiLM(nn.Module):
         
         # Freeze transformer blocks
         for i, blk in enumerate(self.ast.v.blocks):
-            if until_block is None or i <= until_block:
+            if until is None or i <= until:
                 for p in blk.parameters():
                     p.requires_grad = False
         

@@ -27,11 +27,11 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             input_fdim=ast_cfg.get('input_fdim', 128),
             input_tdim=ast_cfg.get('input_tdim', 1024),
             imagenet_pretrain=ast_cfg.get('imagenet_pretrain', True),
-            audioset_pretrain=ast_cfg.get('audioset_pretrain', False),
+            audioset_pretrain=ast_cfg.get('audioset_pretrain', True),
             audioset_ckpt_path=ast_cfg.get('audioset_ckpt_path', ''),
             model_size=ast_cfg.get('model_size', 'base384'),
             verbose=ast_cfg.get('verbose', True),
-            dropout_p=ast_cfg.get('dropout_p', 0.3),
+            dropout_p=ast_cfg.get('dropout_p', 0.0),
         )
         
     elif model_key == "ast_film":
@@ -59,8 +59,8 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             'dev_emb_dim': film_cfg.get('dev_emb_dim', 4),
             'site_emb_dim': film_cfg.get('site_emb_dim', 4),
             'conditioned_layers': film_cfg.get('conditioned_layers', (10, 11)),
-            'metadata_hidden_dim': film_cfg.get('metadata_hidden_dim', 64),
-            'film_hidden_dim': film_cfg.get('film_hidden_dim', 64),
+            'metadata_hidden_dim': film_cfg.get('metadata_hidden_dim', 32),
+            'film_hidden_dim': film_cfg.get('film_hidden_dim', 32),
             'dropout_p': ast_cfg.get('dropout_p', 0.3),
             'num_labels': 2,
             'debug_film': film_cfg.get('debug_film', False),
