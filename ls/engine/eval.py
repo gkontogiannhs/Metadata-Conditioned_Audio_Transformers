@@ -225,12 +225,7 @@ def compute_multiclass_metrics(all_labels, all_preds, all_probs=None, verbose=Tr
     
     # ICBHI-style metrics (if 4-class: Normal, Crackle, Wheeze, Both)
     n_classes = len(np.unique(all_labels))
-    if n_classes == 4:
-        # Specificity (Normal recall) and Sensitivity (Abnormal recall)
-        normal_correct = cm[0, 0]
-        normal_total = cm[0, :].sum()
-        abnormal_correct = cm[1:, 1:].sum() - (cm[1, 2] + cm[1, 3] + cm[2, 1] + cm[2, 3] + cm[3, 1] + cm[3, 2])
-        # Actually, let's do it properly:
+    if n_classes == 4:        
         # Sensitivity = correctly classified abnormal / total abnormal
         abnormal_mask = all_labels > 0
         if abnormal_mask.sum() > 0:

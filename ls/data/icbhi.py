@@ -12,12 +12,12 @@ from ls.data.augmentation import build_augmentations
 from ls.data.transforms import generate_fbank
 from ls.data.icbhi_utils import get_annotations, get_individual_cycles, _convert_4class_to_multilabel
 
-
+    
 class ICBHIDataset(Dataset):
     """
     ICBHI Dataset with missing value handling.
     """
-
+    
     REQUIRED_META_COLS = [
         "PID", "Filename", "CycleIndex", "CycleStart", "CycleEnd",
         "Crackles", "Wheezes", "Split", "Device", "Fold",
@@ -563,3 +563,15 @@ class ICBHIDataset(Dataset):
                 f"input_shape=({self.h}, {self.w}), "
                 f"n_wave_augs={len(self.waveform_augs)}, "
                 f"n_spec_augs={len(self.spec_augs)})")
+    
+    @property
+    def num_devices(self) -> int:
+        return len(self.device2id)
+    
+    @property
+    def num_sites(self) -> int:
+        return len(self.site2id)
+    
+    @property
+    def rest_dim(self) -> int:
+        return len(self.continuous_stats)

@@ -174,7 +174,7 @@ training:
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 1          # which GPU among visible ones to use
+    device_id: 5          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
