@@ -31,9 +31,9 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             audioset_ckpt_path=ast_cfg.get('audioset_ckpt_path', ''),
             model_size=ast_cfg.get('model_size', 'base384'),
             verbose=ast_cfg.get('verbose', True),
-            dropout_p=ast_cfg.get('dropout_p', 0.0),
+            dropout_p=ast_cfg.get('dropout', 0.0),
         )
-        
+    
     elif model_key == "ast_film":
         # FiLM-conditioned AST
         ast_cfg = cfg.get('ast', {})

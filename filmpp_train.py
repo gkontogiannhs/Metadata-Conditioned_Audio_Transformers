@@ -31,7 +31,7 @@ def parse_args():
     # Data
     parser.add_argument("--data_root", type=str, required=True)
     parser.add_argument("--metadata_csv", type=str, default=None)
-    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--weighted_sampler", action="store_true")
     

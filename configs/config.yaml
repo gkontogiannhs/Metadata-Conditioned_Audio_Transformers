@@ -7,9 +7,9 @@ dataset:
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
-  multi_label: true
-  n_cls: 4
-  weighted_sampler: true
+  multi_label: false
+  n_cls: 2
+  weighted_sampler: false
   batch_size: 16
   num_workers: 0
   h: 128
@@ -163,23 +163,23 @@ models:
 training:
   # model_name: ast
   n_cls: 2
-  loss: bce # (b)ce, weighted_ce, focal, label_smoothing, asymmetric
+  loss: composite # bce, weighted_ce, focal, label_smoothing, asymmetric, hierarchical, composite
   # alpha: 0.25
   gamma: 2.0
   use_class_weights: false
-  epochs: 40
+  epochs: 100
   kfold_splits: 5
   early_stopping: 5
   grad_clip: 1.0
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 5          # which GPU among visible ones to use
+    device_id: 0          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
     type: adamw
-    lr: 3e-4
+    lr: 3e-5
     weight_decay: 0.05 # only used if scheduler.cosine_weight_decay=false
     # momentum:
     # betas: # [0.9, 0.95]
@@ -188,7 +188,7 @@ training:
 
   scheduler:
     type: cosine_warmup        # options: none, cosine, cosine_warmup, reduce_on_plateau, cosine_warmup_restarts
-    warmup_epochs: 3         # used only for warmup
+    warmup_epochs: 10         # used only for warmup
     T_0: 20               # used only for cosine_*
     start_linear_warmup: 1e-4
     end_linear_warmup: 1

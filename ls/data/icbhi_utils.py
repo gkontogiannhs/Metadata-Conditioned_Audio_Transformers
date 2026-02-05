@@ -110,16 +110,6 @@ def _get_lungsound_label(crackle: int, wheeze: int, n_cls: int) -> int:
     raise ValueError(f"Unsupported n_cls: {n_cls}")
 
 
-def _convert_4class_to_multilabel(label: int) -> List[int]:
-    mapping = {
-        0: [0, 0],
-        1: [1, 0],
-        2: [0, 1],
-        3: [1, 1],
-    }
-    return mapping.get(int(label), [0, 0])
-
-
 def _get_diagnosis_label(disease: str, n_cls: int) -> int:
     if n_cls == 3:
         if disease in ["COPD", "Bronchiectasis", "Asthma"]:

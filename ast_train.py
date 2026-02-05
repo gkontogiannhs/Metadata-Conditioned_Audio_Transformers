@@ -1,7 +1,6 @@
 import os
 import mlflow
 from ls.config.loader import load_config
-# from ls.engine.train import train_loop
 from ls.data.dataloaders import build_dataloaders
 from ls.models.builder import build_model
 from ls.engine.utils import set_seed
@@ -11,15 +10,13 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import math
-import os
-import mlflow
 from tqdm import tqdm
 from ls.engine.utils import get_device
 from ls.config.dataclasses import TrainingConfig
 from ls.engine.scheduler import build_scheduler
-import numpy as np
 from collections import defaultdict
 from utils import *
+
 
 # ============================================================
 # TRAINING FUNCTIONS
@@ -28,7 +25,6 @@ from utils import *
 def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, epoch):
     """
     Train model for one epoch with multi-label binary classification.
-    Handles both 4-class labels (auto-converts) and multi-label labels.
     """
     model.train()
     total_loss, n_samples = 0.0, 0
@@ -43,10 +39,12 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
 
         optimizer.zero_grad()
         with torch.amp.autocast(device.type):
-            logits = model(inputs)  # (B, 2)
-            loss = criterion(logits, labels)  # BCEWithLogitsLoss
+            logits = model(inputs)
+            loss = criterion(logits, labels)
 
         grdscaler.scale(loss).backward()
+        grdscaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         grdscaler.step(optimizer)
         grdscaler.update()
 
@@ -61,7 +59,6 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
         all_preds.extend(preds)
         all_probs.extend(probs)
 
-        # subgroup metrics
         for d, s, y_true, y_pred, y_prob in zip(devices, sites, labels_np, preds, probs):
             group_preds[f"device::{d}"].append(y_pred)
             group_labels[f"device::{d}"].append(y_true)
@@ -71,15 +68,11 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
             group_labels[f"site::{s}"].append(y_true)
             group_probs[f"site::{s}"].append(y_prob)
 
-    # ----- Global metrics -----
     avg_loss = total_loss / n_samples
     global_metrics = compute_multilabel_metrics(
         np.array(all_labels), np.array(all_preds), np.array(all_probs)
     )
-    # print(f"[Epoch {epoch}] Global | HS: {global_metrics['icbhi_score']*100:.2f}% | "
-    #       f"Sp: {global_metrics['specificity']*100:.2f}% | Se: {global_metrics['sensitivity']*100:.2f}%")
 
-    # ----- Group-level metrics -----
     group_metrics = {}
     for group in group_labels.keys():
         group_metrics[group] = compute_multilabel_metrics(
@@ -88,22 +81,23 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device, grdscaler, 
             np.array(group_probs[group]),
             verbose=False
         )
-        print(f"[Epoch {epoch}] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.4f}% | "
-              f"Sp: {group_metrics[group]['specificity']*100:.4f}% | Se: {group_metrics[group]['sensitivity']*100:.4f}%")
+    
     return avg_loss, global_metrics, group_metrics
 
 
 def evaluate(model, dataloader, criterion, device,
-             thresholds=(0.5, 0.5), tune_thresholds=True, verbose=True):
+             thresholds=(0.5, 0.5), tune_thresholds=False, verbose=True):
     """
     Evaluate model on validation/test set with multi-label metrics.
-    Computes both global and subgroup (device/site) metrics.
+    
+    Args:
+        tune_thresholds: If True, find best thresholds (use for validation only)
+                        If False, use provided thresholds (use for test)
     """
     model.eval()
     total_loss, n_samples = 0.0, 0
     all_probs, all_labels = [], []
 
-    # subgroup accumulators
     group_probs = defaultdict(list)
     group_labels = defaultdict(list)
 
@@ -127,7 +121,6 @@ def evaluate(model, dataloader, criterion, device,
             all_probs.extend(probs)
             all_labels.extend(labels_np)
 
-            # Collect subgroup predictions
             for d, s, y_true, y_prob in zip(devices, sites, labels_np, probs):
                 group_labels[f"device::{d}"].append(y_true)
                 group_probs[f"device::{d}"].append(y_prob)
@@ -137,13 +130,12 @@ def evaluate(model, dataloader, criterion, device,
     all_probs = np.array(all_probs)
     all_labels = np.array(all_labels)
 
-    # Tune thresholds (if validation set)
+    # Tune thresholds only on validation set
     if tune_thresholds:
         best = find_best_thresholds_icbhi(all_labels, all_probs)
         thresholds = (best["tC"], best["tW"])
-        # if verbose:
-        #     print(f"→ Best thresholds: tC={thresholds[0]:.3f}, tW={thresholds[1]:.3f} "
-        #           f"(HS={best['hs']*100:.2f}%, Sp={best['sp']*100:.2f}%, Se={best['se']*100:.2f}%)")
+        if verbose:
+            print(f"→ Tuned thresholds: tC={thresholds[0]:.3f}, tW={thresholds[1]:.3f}")
 
     # Apply thresholds
     all_preds = np.stack([
@@ -152,17 +144,15 @@ def evaluate(model, dataloader, criterion, device,
     ], axis=1)
 
     avg_loss = total_loss / n_samples
-    global_metrics = compute_multilabel_metrics(all_labels, all_preds, all_probs)
+    global_metrics = compute_multilabel_metrics(all_labels, all_preds, all_probs, verbose=verbose)
 
-    # --- Subgroup metrics ---
+    # Subgroup metrics
     group_metrics = {}
     for group, y_true_list in group_labels.items():
         y_true = np.array(y_true_list)
         y_prob = np.array(group_probs[group])
 
-        # Handle empty group (if no samples)
         if len(y_true) == 0:
-            print(f"[Eval] Group: {group} has no samples, skipping metrics.")
             continue
 
         y_pred = np.stack([
@@ -171,14 +161,12 @@ def evaluate(model, dataloader, criterion, device,
         ], axis=1)
 
         group_metrics[group] = compute_multilabel_metrics(y_true, y_pred, y_prob, verbose=False)
-        print(f"[Eval] Group: {group} | HS: {group_metrics[group]['icbhi_score']*100:.4f}% | "
-              f"Sp: {group_metrics[group]['specificity']*100:.4f}% | "
-              f"Se: {group_metrics[group]['sensitivity']*100:.4f}%")
-    # Include thresholds in main metrics for logging
+
     global_metrics["threshold_crackle"] = thresholds[0]
     global_metrics["threshold_wheeze"] = thresholds[1]
 
-    return avg_loss, global_metrics, group_metrics
+    return avg_loss, global_metrics, group_metrics, thresholds
+
 
 # ============================================================
 # MAIN TRAINING LOOP
@@ -186,7 +174,10 @@ def evaluate(model, dataloader, criterion, device,
 
 def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """
-    Adapted training loop for multi-label binary classification.
+    Training loop with:
+    - pos_weight for class imbalance (replaces weighted sampler)
+    - Threshold tuning on validation set only
+    - Fixed thresholds applied to test set
     """
 
     # Hardware config
@@ -198,10 +189,34 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     model = model.to(device)
     print(f"Model moved to {device}")
 
-    # ============================================================
-    # LOSS FUNCTION (Multi-Label Binary)
-    # ============================================================
-    criterion = nn.BCEWithLogitsLoss()
+    # Compute pos_weight with bias
+    pos_weight = compute_pos_weight(train_loader, device, sensitivity_bias=1.5)
+
+    loss_type = str(cfg.loss)
+    print(loss_type)
+    if loss_type == 'bce':
+        # Standard BCE with higher pos_weight
+        criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    elif loss_type == 'asymmetric':
+        # Asymmetric BCE
+        criterion = AsymmetricBCEWithLogitsLoss(
+            gamma_neg=2.0,    # Down-weight easy negatives
+            gamma_pos=1.0,    # Keep focus on all positives  
+            pos_weight=pos_weight
+        )
+    
+    elif loss_type == 'hierarchical':
+        criterion = HierarchicalMultiLabelLoss(
+            sensitivity_bias=1.5, partial_credit=0.5, miss_penalty=2.0
+        )
+
+    elif loss_type == 'composite':
+        criterion = CompositeClassLoss(
+            sensitivity_bias=1.5, partial_credit=0.5, over_pred_cost=0.3, normalize_weights=True
+        )
+
+
     epochs = cfg.epochs
     initial_wd = float(cfg.optimizer.weight_decay)
     final_wd = float(cfg.optimizer.final_weight_decay)
@@ -209,13 +224,14 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=initial_wd)
     scheduler = build_scheduler(cfg.scheduler, cfg.epochs, optimizer)
     scaler = torch.amp.GradScaler(device.type)
+    
     print(f"Using Scheduler: {cfg.scheduler.type}")
-    print(f"Using Loss: BCEWithLogitsLoss (multi-label binary)")
 
     def _get_cosine_weight_decay(epoch):
         return final_wd + 0.5 * (initial_wd - final_wd) * (1 + math.cos(math.pi * epoch / epochs))
 
     best_icbhi, best_state_dict, best_epoch = -np.inf, None, 0
+    best_thresholds = (0.5, 0.5)  # Store best thresholds from validation
 
     # ============================================================
     # TRAINING LOOP
@@ -231,61 +247,62 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         for k, v in train_metrics.items():
             mlflow.log_metric(f"{prefix}_{k}", v, step=epoch)
 
-        # Log per-device/site training metrics
         for group, metrics_dict in train_metrics_groups.items():
             for mk, mv in metrics_dict.items():
                 mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
 
         print(f"[{prefix}][Epoch {epoch}] "
               f"Loss={train_loss:.4f} | "
-              f"Normal(Se/Sp)={train_metrics['Normal_sensitivity']:.4f}/{train_metrics['Normal_specificity']:.4f} | "
-              f"Crackles(Se/Sp)={train_metrics['Crackle_sensitivity']:.4f}/{train_metrics['Crackle_specificity']:.4f} | "
-              f"Wheezes(Se/Sp)={train_metrics['Wheeze_sensitivity']:.4f}/{train_metrics['Wheeze_specificity']:.4f} | "
-              f"Both(Se/Sp)={train_metrics['Both_sensitivity']:.4f}/{train_metrics['Both_specificity']:.4f} | "
-              f"Sensitivity={train_metrics['sensitivity']:.4f}/Specificity={train_metrics['specificity']:.4f} | "
+              f"Se={train_metrics['sensitivity']:.4f} | Sp={train_metrics['specificity']:.4f} | "
               f"ICBHI={train_metrics['icbhi_score']:.4f}")
 
-        # --- VALIDATION ---
+        # --- VALIDATION (tune thresholds here) ---
         if val_loader:
-            val_loss, val_metrics, val_metrics_groups = evaluate(model, val_loader, criterion, device, tune_thresholds=True)
+            val_loss, val_metrics, val_metrics_groups, val_thresholds = evaluate(
+                model, val_loader, criterion, device, 
+                tune_thresholds=True,  # Tune thresholds on validation
+                verbose=False
+            )
 
             prefix = "Val" if fold_idx is None else f"Val_Fold{fold_idx}"
             mlflow.log_metric(f"{prefix}_loss", val_loss, step=epoch)
             for k, v in val_metrics.items():
                 mlflow.log_metric(f"{prefix}_{k}", v, step=epoch)
 
-            # Log per-device/site validation metrics
             for group, metrics_dict in val_metrics_groups.items():
                 for mk, mv in metrics_dict.items():
                     mlflow.log_metric(f"{prefix}_{group}_{mk}", mv, step=epoch)
 
             print(f"[{prefix}][Epoch {epoch}] "
                   f"Loss={val_loss:.4f} | "
-                  f"Normal(Se/Sp)={val_metrics['Normal_sensitivity']:.4f}/{val_metrics['Normal_specificity']:.4f} | "
-                  f"Crackles(Se/Sp)={val_metrics['Crackle_sensitivity']:.4f}/{val_metrics['Crackle_specificity']:.4f} | "
-                  f"Wheezes(Se/Sp)={val_metrics['Wheeze_sensitivity']:.4f}/{val_metrics['Wheeze_specificity']:.4f} | "
-                  f"Both(Se/Sp)={val_metrics['Both_sensitivity']:.4f}/{val_metrics['Both_specificity']:.4f} | "
-                  f"Sensitivity={val_metrics['sensitivity']:.4f}/Specificity={val_metrics['specificity']:.4f} | "
-                  f"ICBHI={val_metrics['icbhi_score']:.4f}")
+                  f"Se={val_metrics['sensitivity']:.4f} | Sp={val_metrics['specificity']:.4f} | "
+                  f"ICBHI={val_metrics['icbhi_score']:.4f} | "
+                  f"tC={val_thresholds[0]:.3f}, tW={val_thresholds[1]:.3f}")
 
             icbhi = val_metrics["icbhi_score"]
             if icbhi > best_icbhi:
-                best_icbhi, best_state_dict, best_epoch = icbhi, model.state_dict(), epoch
+                best_icbhi = icbhi
+                best_state_dict = model.state_dict()
+                best_epoch = epoch
+                best_thresholds = val_thresholds  # Save best thresholds
+                
                 ckpt_path = (
                     f"checkpoints/{epoch}_"
-                    # f"Crack_Se={val_metrics['Crackle_sensitivity']:.2f}_"
-                    # f"Crack_Sp={val_metrics['Crackle_specificity']:.2f}_"
-                    # f"Whz_Se={val_metrics['Wheeze_sensitivity']:.4f}_"
-                    # f"Whz_Sp={val_metrics['Wheeze_specificity']:.4f}_"
                     f"Sp={val_metrics['specificity']:.4f}_"
                     f"Se={val_metrics['sensitivity']:.4f}_"
                     f"ICBHI={icbhi:.4f}_"
+                    f"tC={val_thresholds[0]:.3f}_tW={val_thresholds[1]:.3f}_"
                     f"fold{fold_idx or 0}_best.pt"
                 )
                 os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
-                torch.save(best_state_dict, ckpt_path)
+                torch.save({
+                    'model_state_dict': best_state_dict,
+                    'thresholds': best_thresholds,
+                    'epoch': best_epoch,
+                    'icbhi_score': best_icbhi
+                }, ckpt_path)
                 mlflow.log_artifact(ckpt_path, artifact_path="model_checkpoints")
-                print(f"New best model saved (Epoch {epoch}, ICBHI={icbhi*100:.2f})")
+                print(f"★ New best model (Epoch {epoch}, ICBHI={icbhi*100:.2f}%, tC={val_thresholds[0]:.3f}, tW={val_thresholds[1]:.3f})")
 
         # --- SCHEDULER & WEIGHT DECAY ---
         if scheduler:
@@ -297,7 +314,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 scheduler.step()
 
             lr = optimizer.param_groups[0]["lr"]
-            print(f"Learning rate: {lr}")
             mlflow.log_metric("lr", lr, step=epoch)
 
         if cfg.optimizer.cosine_weight_decay:
@@ -309,62 +325,63 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     # --- LOAD BEST MODEL FOR TESTING ---
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
-        print(f"Loaded best model from Epoch {best_epoch} (ICBHI={best_icbhi:.2f})")
+        print(f"\n{'='*60}")
+        print(f"Loaded best model from Epoch {best_epoch}")
+        print(f"Validation ICBHI={best_icbhi*100:.2f}%")
+        print(f"Using thresholds: tC={best_thresholds[0]:.3f}, tW={best_thresholds[1]:.3f}")
+        print(f"{'='*60}\n")
     else:
-        print("No validation set provided — using last epoch weights.")
+        print("No validation improvement — using last epoch weights.")
         best_state_dict = model.state_dict()
 
-    # --- FINAL TEST EVALUATION ---
+    # --- FINAL TEST EVALUATION (with FIXED thresholds from validation) ---
     if test_loader:
-        test_loss, test_metrics, test_metrics_groups = evaluate(model, test_loader, criterion, device)
+        print(f"[Test] Evaluating with FIXED thresholds from validation: tC={best_thresholds[0]:.3f}, tW={best_thresholds[1]:.3f}")
+        
+        test_loss, test_metrics, test_metrics_groups, _ = evaluate(
+            model, test_loader, criterion, device,
+            thresholds=best_thresholds,  # Use fixed thresholds from validation
+            tune_thresholds=False,  # No tune on test set
+            verbose=True
+        )
 
         prefix = "Test" if fold_idx is None else f"Test_Fold{fold_idx}"
         mlflow.log_metric(f"{prefix}_loss", test_loss)
         for k, v in test_metrics.items():
             mlflow.log_metric(f"{prefix}_{k}", v)
 
-        # Log per-device/site test metrics
         for group, metrics_dict in test_metrics_groups.items():
             for mk, mv in metrics_dict.items():
                 mlflow.log_metric(f"{prefix}_{group}_{mk}", mv)
 
-        print(f"[{prefix}] Final | "
-              f"Loss={test_loss:.4f} | "
-              f"Normal(Se/Sp)={test_metrics['Normal_sensitivity']:.2f}/{test_metrics['Normal_specificity']:.2f} | "
-              f"Crackles(Se/Sp)={test_metrics['Crackle_sensitivity']:.2f}/{test_metrics['Crackle_specificity']:.2f} | "
-              f"Wheezes(Se/Sp)={test_metrics['Wheeze_sensitivity']:.2f}/{test_metrics['Wheeze_specificity']:.2f} | "
-              f"Both(Se/Sp)={test_metrics['Both_sensitivity']:.2f}/{test_metrics['Both_specificity']:.2f} | "
-              f"Sensitivity={test_metrics['sensitivity']:.2f}/Specificity={test_metrics['specificity']:.2f} | "
-              f"ICBHI={test_metrics['icbhi_score']:.2f}")
+        print(f"\n[{prefix}] Final Results:")
+        print(f"  Loss={test_loss:.4f}")
+        print(f"  Sensitivity={test_metrics['sensitivity']*100:.2f}%")
+        print(f"  Specificity={test_metrics['specificity']*100:.2f}%")
+        print(f"  ICBHI Score={test_metrics['icbhi_score']*100:.2f}%")
+        print(f"  Thresholds: tC={best_thresholds[0]:.3f}, tW={best_thresholds[1]:.3f}")
 
-        # === SUMMARY TABLE (PER DEVICE / SITE) ===
+        # === SUMMARY TABLE ===
         try:
             import pandas as pd
             key_metrics = ["f1_macro", "sensitivity", "specificity", "icbhi_score"]
             df_summary = pd.DataFrame(test_metrics_groups).T.fillna("-")
             cols = [c for c in key_metrics if c in df_summary.columns]
-            df_summary = df_summary[cols]
+            if cols:
+                df_summary = df_summary[cols]
+                print("\n" + "=" * 65)
+                print("PER-DEVICE / PER-SITE PERFORMANCE SUMMARY (Test Set)")
+                print("=" * 65)
+                print(df_summary.to_string(float_format=lambda x: f"{x:.3f}"))
+                print("=" * 65 + "\n")
 
-            print("\n" + "=" * 65)
-            print("PER-DEVICE / PER-SITE PERFORMANCE SUMMARY (Test Set)")
-            print("=" * 65)
-            print(df_summary.to_string(float_format=lambda x: f"{x:.3f}"))
-            print("=" * 65 + "\n")
-
-            # Save to CSV and Markdown
-            os.makedirs("summaries", exist_ok=True)
-            csv_path = f"summaries/group_performance_summary_fold{fold_idx or 0}.csv"
-            md_path = f"summaries/group_performance_summary_fold{fold_idx or 0}.md"
-            df_summary.to_csv(csv_path)
-            df_summary.to_markdown(md_path)
-
-            # Log artifacts to MLflow
-            mlflow.log_artifact(csv_path, artifact_path="summaries")
-            mlflow.log_artifact(md_path, artifact_path="summaries")
+                os.makedirs("summaries", exist_ok=True)
+                csv_path = f"summaries/group_performance_summary_fold{fold_idx or 0}.csv"
+                df_summary.to_csv(csv_path)
+                mlflow.log_artifact(csv_path, artifact_path="summaries")
 
         except Exception as e:
-            print(f"[WARN] Could not print or export per-device/site summary: {e}")
-
+            print(f"[WARN] Could not export summary: {e}")
 
     return model, criterion
 
@@ -373,35 +390,42 @@ def main_single():
     cfg = load_config("configs/config.yaml")
     mlflow_cfg = load_config("configs/mlflow.yaml")
 
-    MODEL_KEY = "ast" # "cnn6", "ast", "simplerespcnn"
+    MODEL_KEY = "ast"
     print(f"Using model: {MODEL_KEY}")
 
-    # Set seed for reproducibility
     set_seed(cfg.seed)
-
-    # Build Dataset
+    
+    # Build Dataset WITH validation split (80/20 from training)
+    # train_loader, val_loader, test_loader = build_dataloaders_with_val(
+    #     cfg.dataset, 
+    #     cfg.audio,
+    #     val_ratio=0.2,  # 20% of training data for validation
+    #     use_weighted_sampler=False  # Disable weighted sampler
+    # )
     train_loader, test_loader = build_dataloaders(cfg.dataset, cfg.audio)
 
-    # Build Model
     model = build_model(cfg.models, model_key=MODEL_KEY)
     print(model)
     print(f"Model has {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable parameters")
 
-    # Authenticate with MLflow
     os.environ["MLFLOW_TRACKING_USERNAME"] = mlflow_cfg.tracking_username
     os.environ["MLFLOW_TRACKING_PASSWORD"] = mlflow_cfg.tracking_password
-    # Set the MLflow tracking URI
     mlflow.set_tracking_uri(mlflow_cfg.tracking_uri)
-    # Start MLFlow experiment
     mlflow.set_experiment(experiment_id=get_or_create_experiment(mlflow_cfg.experiment_name))
-    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep-BCE-tune-thresh"
+    run_name = f"{MODEL_KEY}_{cfg.training.epochs}ep-BCE-posweight-valsplit"
 
     with mlflow.start_run(run_name=run_name):
-
-        # Log configuration parameterss
         log_all_params(cfg)
-
-        _, _ = train_loop(cfg.training, model, train_loader, val_loader=test_loader, test_loader=test_loader, fold_idx=0)
+        
+        # Now using separate val_loader for threshold tuning
+        _, _ = train_loop(
+            cfg.training, 
+            model, 
+            train_loader, 
+            val_loader=test_loader,
+            test_loader=test_loader, 
+            fold_idx=0
+        )
         
         mlflow.end_run()
 

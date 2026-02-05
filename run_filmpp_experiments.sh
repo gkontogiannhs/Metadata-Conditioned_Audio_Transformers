@@ -9,7 +9,7 @@ set -e  # Exit on error
 DATA_ROOT="/home/AIoT04/Datasets/icbhi_dataset"
 AST_PRETRAINED="/home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth"
 OUTPUT_DIR="outputs/filmpp_experiments"
-GPU_ID=1
+GPU_ID=4
 
 # Common settings
 COMMON_ARGS="
