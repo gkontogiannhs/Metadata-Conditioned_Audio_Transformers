@@ -7,8 +7,8 @@ dataset:
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
-  multi_label: true
-  n_cls: 4
+  multi_label: false
+  n_cls: 2
   weighted_sampler: false
   batch_size: 16
   num_workers: 0
@@ -78,93 +78,42 @@ audio:
       p: .3
 
 models:
-  # simplerespcnn:
-  #   # name: simplerespcnn
-  #   label_dim: 4
-
-  # cnn6:
-  #   name: cnn6
-  #   do_dropout: true
-  #   label_dim: 4
-  #   backbone_only: false
-  #   cpt_path: /home/AIoT04/Dev/pretrained_models/Cnn6_mAP=0.343.pth
-
-  ast:
-    name: ast
-    audioset_pretrain: True
+  ast_filmpp_soft:
+    name: ast_filmpp_soft
+    # AST settings
+    audioset_pretrain: true
     input_fdim: 128
     input_tdim: 1024
     model_size: base384
     fstride: 10
     tstride: 10
-    imagenet_pretrain: True
-    label_dim: 2
-    backbone_only: false
+    imagenet_pretrain: true
+    label_dim: 1
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.4
-
-  # ast_proj:
-  #   name: ast_proj
-  #   audioset_pretrain: true
-  #   input_fdim: 128
-  #   input_tdim: 1024
-  #   model_size: base384
-  #   fstride: 10
-  #   tstride: 10
-  #   imagenet_pretrain: true
-  #   label_dim: 2
-  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-  #   dropout: 0.3
-  #   dev_emb_dim: 4
-  #   site_emb_dim: 4
-  #   hidden_dim: 64
-
-  # ast_film:
-  #   name: ast_film
-  #   audioset_pretrain: true
-  #   input_fdim: 128
-  #   input_tdim: 1024
-  #   model_size: base384
-  #   fstride: 10
-  #   tstride: 10
-  #   imagenet_pretrain: true
-  #   label_dim: 2
-  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-  #   dropout: 0.5
-  #   dev_emb_dim: 4
-  #   site_emb_dim: 7
-  #   metadata_hidden_dim: 32
-  #   film_hidden_dim: 32 
-  #   conditioned_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  #   condition_on_device: True
-  #   condition_on_site: True
-  #   condition_on_rest: True
-
-  # ast_filmpp:
-  #   name: ast_filmpp
-  #   audioset_pretrain: true
-  #   input_fdim: 128
-  #   input_tdim: 1024
-  #   model_size: base384
-  #   fstride: 10
-  #   tstride: 10
-  #   imagenet_pretrain: true
-  #   label_dim: 2
-  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-  #   dropout: 0.5
-  #   dev_emb_dim: 4
-  #   site_emb_dim: 7
-  #   metadata_hidden_dim: 16
-  #   film_hidden_dim: 16
-  #   conditioned_layers: [12]
-  #   D_dev: 32
-  #   D_site: 32
+    
+    # FiLM++ settings
+    dev_emb_dim: 8
+    site_emb_dim: 14
+    metadata_hidden_dim: 64
+    film_hidden_dim: 64
+    
+    # Soft mask settings
+    mask_init_scale: 2.0        # Higher = sharper initial separation
+    mask_sparsity_lambda: 0.01  # Regularization for mask overlap
+    per_layer_masks: false      # true = separate masks per layer
+    
+    # Conditioned layers
+    conditioned_layers: [10, 11]
+    
+    debug_film: false
 
 training:
   # model_name: ast
-  n_cls: 4
+  n_cls: 2
   loss: bce # bce, weighted_ce, focal, label_smoothing, asymmetric, hierarchical, composite
   sensitivity_bias: 1.5
+  mask_sparsity_lambda: 0.01
   alpha: 0.25
   gamma: 2.0
   use_class_weights: false
@@ -175,9 +124,9 @@ training:
 
   # AST Freezing
   freeze:
-    strategy: trainable_blocks  # none, all, until_block, trainable_blocks
-    trainable_blocks: 4         # Number of blocks to keep trainable (from end)
-    until_block: 7            # Alternative: freeze blocks 0-9
+    strategy: none  # none, all, until_block, trainable_blocks
+    trainable_blocks:         # Number of blocks to keep trainable (from end)
+    until_block:          # Alternative: freeze blocks 0-9
 
 
   # Loss-specific parameters (for hierarchical/composite)
@@ -187,7 +136,7 @@ training:
 
   hardware:
     visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 0          # which GPU among visible ones to use
+    device_id: 3          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
@@ -198,6 +147,15 @@ training:
     # betas: # [0.9, 0.95]
     cosine_weight_decay: true
     final_weight_decay: 0.0
+
+    # Differential LR
+    use_differential_lr: false
+    backbone_lr_scale: 0.01
+    embedding_lr_scale: 0.5
+    encoder_lr_scale: 1.0
+    film_lr_scale: 1.0
+    mask_lr_scale: 1.5       # Slightly higher for masks
+    classifier_lr_scale: 2.0
 
   scheduler:
     type: cosine_warmup        # options: none, cosine, cosine_warmup, reduce_on_plateau, cosine_warmup_restarts

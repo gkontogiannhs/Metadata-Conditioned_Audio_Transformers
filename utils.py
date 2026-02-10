@@ -2,6 +2,9 @@ import os
 import torch
 import numpy as np
 import torch.nn as nn
+import torch.nn.functional as F
+from tqdm import tqdm
+
 
 def set_visible_gpus(gpus: str, verbose: bool = True):
     """
@@ -413,39 +416,45 @@ class CompositeClassLoss(nn.Module):
         return loss
 
 
-def compute_pos_weight(dataloader, device, sensitivity_bias=2.0):
+def compute_pos_weight(dataloader, device, sensitivity_bias=1.5, binary_mode=False):
     """
-    Compute pos_weight with sensitivity bias.
-    
-    Args:
-        sensitivity_bias: multiplier to increase weight on positives (default 2.0)
-                         Higher = more penalty for missing positives
+    Compute pos_weight for BCEWithLogitsLoss.
     """
     all_labels = []
     
-    for batch in dataloader:
+    for batch in tqdm(dataloader, desc="Computing pos_weight"):
         labels = batch["label"].numpy()
         all_labels.append(labels)
     
-    all_labels = np.vstack(all_labels)
+    if binary_mode:
+        all_labels = np.concatenate(all_labels).astype(np.int64)  # Cast to int
+    else:
+        all_labels = np.vstack(all_labels).astype(np.float32)  # Keep float for sum
+    
     n_total = len(all_labels)
     
-    n_pos = all_labels.sum(axis=0)
-    n_neg = n_total - n_pos
-    
-    # Base pos_weight
-    pos_weight = n_neg / (n_pos + 1e-6)
-    
-    # Apply sensitivity bias
-    pos_weight = pos_weight * sensitivity_bias
-    
-    print(f"\n[Pos Weight] Label distribution:")
-    print(f"  Crackle: {int(n_pos[0])}/{n_total} positive ({n_pos[0]/n_total*100:.1f}%)")
-    print(f"  Wheeze:  {int(n_pos[1])}/{n_total} positive ({n_pos[1]/n_total*100:.1f}%)")
-    print(f"  Base pos_weight: [{n_neg[0]/n_pos[0]:.2f}, {n_neg[1]/n_pos[1]:.2f}]")
-    print(f"  With bias ({sensitivity_bias}x): [{pos_weight[0]:.2f}, {pos_weight[1]:.2f}]")
-    
-    return torch.tensor(pos_weight, dtype=torch.float32).to(device)
+    if binary_mode:
+        n_pos = (all_labels == 1).sum()
+        n_neg = (all_labels == 0).sum()
+        pos_weight = (n_neg / (n_pos + 1e-6)) * sensitivity_bias
+        
+        print(f"\n[Pos Weight - Binary Mode]")
+        print(f"  Normal:   {int(n_neg)} ({n_neg/n_total*100:.1f}%)")
+        print(f"  Abnormal: {int(n_pos)} ({n_pos/n_total*100:.1f}%)")
+        print(f"  pos_weight: {pos_weight:.4f} (bias={sensitivity_bias})")
+        
+        return torch.tensor([pos_weight], dtype=torch.float32).to(device)
+    else:
+        n_pos = all_labels.sum(axis=0)
+        n_neg = n_total - n_pos
+        pos_weight = (n_neg / (n_pos + 1e-6)) * sensitivity_bias
+        
+        print(f"\n[Pos Weight - Multi-label Mode]")
+        print(f"  Crackle: {int(n_pos[0])}/{n_total} positive ({n_pos[0]/n_total*100:.1f}%)")
+        print(f"  Wheeze:  {int(n_pos[1])}/{n_total} positive ({n_pos[1]/n_total*100:.1f}%)")
+        print(f"  pos_weight: [{pos_weight[0]:.4f}, {pos_weight[1]:.4f}] (bias={sensitivity_bias})")
+        
+        return torch.tensor(pos_weight, dtype=torch.float32).to(device)
 
 
 class CompositeClassLoss(nn.Module):
@@ -516,3 +525,281 @@ class CompositeClassLoss(nn.Module):
         loss = (pred_probs * costs).sum(dim=1).mean()
         
         return loss
+
+def compute_class_counts(dataloader, binary_mode=False):
+    """
+    Compute class counts for loss weighting.
+    
+    Returns:
+        binary_mode=False: [N_normal, N_crackle, N_wheeze, N_both]
+        binary_mode=True: [N_normal, N_abnormal]
+    """
+    all_labels = []
+    
+    for batch in dataloader:
+        labels = batch["label"].numpy()
+        all_labels.append(labels)
+    
+    if binary_mode:
+        all_labels = np.concatenate(all_labels)
+        n_normal = (all_labels == 0).sum()
+        n_abnormal = (all_labels == 1).sum()
+        return [n_normal, n_abnormal]
+    else:
+        all_labels = np.vstack(all_labels)
+        # Convert multi-label to 4-class (cast to int!)
+        class_labels = (all_labels[:, 0] * 1 + all_labels[:, 1] * 2).astype(np.int64)
+        counts = np.bincount(class_labels, minlength=4)
+        return counts.tolist()  # [N, C, W, B]
+    
+
+# ============================================================
+# METRICS
+# ============================================================
+
+def compute_binary_metrics(all_labels, all_preds, all_probs=None, verbose=True):
+    """
+    Compute metrics for binary (Normal vs Abnormal) classification.
+    """
+    all_labels = np.array(all_labels).flatten()
+    all_preds = np.array(all_preds).flatten()
+    
+    TP = ((all_preds == 1) & (all_labels == 1)).sum()
+    TN = ((all_preds == 0) & (all_labels == 0)).sum()
+    FP = ((all_preds == 1) & (all_labels == 0)).sum()
+    FN = ((all_preds == 0) & (all_labels == 1)).sum()
+    
+    sensitivity = TP / (TP + FN + 1e-12)  # Recall for abnormal
+    specificity = TN / (TN + FP + 1e-12)  # Recall for normal
+    precision = TP / (TP + FP + 1e-12)
+    f1 = 2 * precision * sensitivity / (precision + sensitivity + 1e-12)
+    accuracy = (TP + TN) / (TP + TN + FP + FN + 1e-12)
+    icbhi_score = (sensitivity + specificity) / 2
+    
+    metrics = {
+        'sensitivity': sensitivity,
+        'specificity': specificity,
+        'precision': precision,
+        'f1': f1,
+        'accuracy': accuracy,
+        'icbhi_score': icbhi_score,
+    }
+    
+    if verbose:
+        print(f"[Binary] Se={sensitivity*100:.2f}% | Sp={specificity*100:.2f}% | "
+              f"F1={f1*100:.2f}% | ICBHI={icbhi_score*100:.2f}%")
+    
+    return metrics
+
+
+def find_best_threshold_binary(val_labels, val_probs, grid=np.linspace(0.1, 0.9, 17), min_sensitivity=0.4):
+    """
+    Find best threshold for binary classification.
+    """
+    best = {"threshold": 0.5, "se": 0.0, "sp": 0.0, "icbhi_score": 0.0}
+    
+    val_labels = np.array(val_labels).flatten()
+    val_probs = np.array(val_probs).flatten()
+    
+    for t in grid:
+        preds = (val_probs >= t).astype(int)
+        
+        TP = ((preds == 1) & (val_labels == 1)).sum()
+        TN = ((preds == 0) & (val_labels == 0)).sum()
+        FP = ((preds == 1) & (val_labels == 0)).sum()
+        FN = ((preds == 0) & (val_labels == 1)).sum()
+        
+        se = TP / (TP + FN + 1e-12)
+        sp = TN / (TN + FP + 1e-12)
+        hs = (se + sp) / 2
+        
+        if se >= min_sensitivity and hs > best["icbhi_score"]:
+            best = {"threshold": float(t), "se": float(se), "sp": float(sp), "icbhi_score": float(hs)}
+    
+    return best
+
+# ============================================================
+# AST FREEZING UTILITY
+# ============================================================
+def configure_ast_freezing(model, freeze_cfg):
+    """Configure AST layer freezing based on config."""
+    
+    if freeze_cfg is None:
+        print("[Freeze] No freeze config - training all parameters")
+        return
+    
+    strategy = freeze_cfg.get('strategy', 'none')
+    
+    # Handle different model types
+    if hasattr(model, 'ast'):
+        # ASTMetaProj or ASTFiLM: AST is wrapped inside model.ast
+        ast_backbone = model.ast
+    else:
+        # Vanilla AST
+        ast_backbone = model
+    
+    if strategy == 'none':
+        model.unfreeze_all()
+        print("[Freeze] Strategy: none - all parameters trainable")
+        
+    elif strategy == 'all':
+        # For FiLM, we might want to keep FiLM layers trainable
+        freeze_film = freeze_cfg.get('freeze_film', False)
+        if hasattr(model, 'freeze_backbone'):
+            model.freeze_backbone(until=None, freeze_film=freeze_film)
+        else:
+            model.freeze_backbone(until_block=None)
+        print(f"[Freeze] Strategy: all - backbone frozen, FiLM frozen: {freeze_film}")
+        
+    elif strategy == 'until_block':
+        until_block = freeze_cfg.get('until_block', 9)
+        freeze_film = freeze_cfg.get('freeze_film', False)
+        if hasattr(model, 'freeze_backbone'):
+            model.freeze_backbone(until=until_block, freeze_film=freeze_film)
+        else:
+            model.freeze_backbone(until_block=until_block)
+        print(f"[Freeze] Strategy: until_block - blocks 0-{until_block} frozen")
+        
+    elif strategy == 'trainable_blocks':
+        num_blocks = len(ast_backbone.v.blocks)
+        trainable_blocks = freeze_cfg.get('trainable_blocks', 2)
+        until_block = num_blocks - trainable_blocks - 1
+        freeze_film = freeze_cfg.get('freeze_film', False)
+        
+        if until_block >= 0:
+            if hasattr(model, 'freeze_backbone'):
+                model.freeze_backbone(until=until_block, freeze_film=freeze_film)
+            else:
+                model.freeze_backbone(until_block=until_block)
+            print(f"[Freeze] Strategy: trainable_blocks={trainable_blocks} - "
+                  f"blocks 0-{until_block} frozen, {until_block+1}-{num_blocks-1} trainable")
+        else:
+            model.unfreeze_all()
+            print(f"[Freeze] Strategy: trainable_blocks={trainable_blocks} - all blocks trainable")
+    else:
+        print(f"[Freeze] Unknown strategy '{strategy}' - training all")
+        model.unfreeze_all()
+    
+    # Print parameter counts
+    total = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    frozen = total - trainable
+    print(f"[Freeze] Total: {total:,} | Trainable: {trainable:,} ({100*trainable/total:.1f}%) | Frozen: {frozen:,}")
+    
+    # Print FiLM-specific parameter counts
+    if hasattr(model, 'film_generators'):
+        film_params = sum(p.numel() for p in model.film_generators.parameters())
+        film_trainable = sum(p.numel() for p in model.film_generators.parameters() if p.requires_grad)
+        print(f"[Freeze] FiLM generators: {film_params:,} total, {film_trainable:,} trainable")
+              
+
+# def configure_ast_freezing(model, freeze_cfg):
+#     """Configure AST layer freezing based on config."""
+    
+#     if freeze_cfg is None:
+#         print("[Freeze] No freeze config - training all parameters")
+#         return
+    
+#     strategy = freeze_cfg.get('strategy', 'none')
+    
+#     # Handle both vanilla AST and ASTMetaProj
+#     if hasattr(model, 'ast'):
+#         # ASTMetaProj: AST is wrapped inside model.ast
+#         ast_model = model.ast
+#     else:
+#         # Vanilla AST
+#         ast_model = model
+    
+#     if strategy == 'none':
+#         model.unfreeze_all()
+#         print("[Freeze] Strategy: none - all parameters trainable")
+        
+#     elif strategy == 'all':
+#         model.freeze_backbone(until_block=None)
+#         print("[Freeze] Strategy: all - only head + metadata layers trainable")
+        
+#     elif strategy == 'until_block':
+#         until_block = freeze_cfg.get('until_block', 9)
+#         model.freeze_backbone(until_block=until_block)
+#         print(f"[Freeze] Strategy: until_block - blocks 0-{until_block} frozen")
+        
+#     elif strategy == 'trainable_blocks':
+#         # Get number of blocks from the correct path
+#         num_blocks = len(ast_model.v.blocks)
+#         trainable_blocks = freeze_cfg.get('trainable_blocks', 2)
+#         until_block = num_blocks - trainable_blocks - 1
+        
+#         if until_block >= 0:
+#             model.freeze_backbone(until_block=until_block)
+#             print(f"[Freeze] Strategy: trainable_blocks={trainable_blocks} - blocks 0-{until_block} frozen, {until_block+1}-{num_blocks-1} trainable")
+#         else:
+#             model.unfreeze_all()
+#             print(f"[Freeze] Strategy: trainable_blocks={trainable_blocks} - all blocks trainable")
+#     else:
+#         print(f"[Freeze] Unknown strategy '{strategy}' - training all")
+#         model.unfreeze_all()
+    
+#     # Print parameter counts
+#     total = sum(p.numel() for p in model.parameters())
+#     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+#     frozen = total - trainable
+#     print(f"[Freeze] Total: {total:,} | Trainable: {trainable:,} ({100*trainable/total:.1f}%) | Frozen: {frozen:,}")
+    
+# def configure_ast_freezing(model, freeze_cfg):
+#     """
+#     Configure AST layer freezing based on config.
+    
+#     Args:
+#         model: AST model with freeze_backbone/unfreeze_all methods
+#         freeze_cfg: dict with freezing configuration
+#             - strategy: 'none', 'all', 'until_block'
+#             - until_block: int, freeze blocks 0..until_block (inclusive)
+#             - trainable_blocks: int, alternative way to specify (from end)
+    
+#     Examples:
+#         freeze_cfg = {'strategy': 'none'}  # Train everything
+#         freeze_cfg = {'strategy': 'all'}   # Freeze all, train head only
+#         freeze_cfg = {'strategy': 'until_block', 'until_block': 9}  # Freeze blocks 0-9
+#         freeze_cfg = {'strategy': 'trainable_blocks', 'trainable_blocks': 2}  # Train last 2 blocks + head
+#     """
+#     if freeze_cfg is None:
+#         print("[Freeze] No freeze config provided, training all parameters")
+#         return
+    
+#     strategy = freeze_cfg.get('strategy', 'none')
+    
+#     if strategy == 'none':
+#         model.unfreeze_all()
+#         print("[Freeze] Strategy: none - all parameters trainable")
+        
+#     elif strategy == 'all':
+#         model.freeze_backbone(until_block=None)
+#         print("[Freeze] Strategy: all - only head trainable")
+        
+#     elif strategy == 'until_block':
+#         until_block = freeze_cfg.get('until_block', 9)
+#         model.freeze_backbone(until_block=until_block)
+#         print(f"[Freeze] Strategy: until_block - blocks 0-{until_block} frozen")
+        
+#     elif strategy == 'trainable_blocks':
+#         # AST base has 12 blocks (0-11)
+#         num_blocks = len(model.v.blocks)
+#         trainable_blocks = freeze_cfg.get('trainable_blocks', 2)
+#         until_block = num_blocks - trainable_blocks - 1
+        
+#         if until_block >= 0:
+#             model.freeze_backbone(until_block=until_block)
+#             print(f"[Freeze] Strategy: trainable_blocks={trainable_blocks} - blocks 0-{until_block} frozen, {until_block+1}-{num_blocks-1} trainable")
+#         else:
+#             model.unfreeze_all()
+#             print(f"[Freeze] Strategy: trainable_blocks={trainable_blocks} - all blocks trainable")
+#     else:
+#         print(f"[Freeze] Unknown strategy '{strategy}', training all parameters")
+#         model.unfreeze_all()
+    
+#     # Print parameter counts
+#     total_params = sum(p.numel() for p in model.parameters())
+#     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+#     frozen_params = total_params - trainable_params
+    
+#     print(f"[Freeze] Total: {total_params:,} | Trainable: {trainable_params:,} ({100*trainable_params/total_params:.1f}%) | Frozen: {frozen_params:,}")

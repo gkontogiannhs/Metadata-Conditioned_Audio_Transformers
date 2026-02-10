@@ -1,5 +1,0 @@
-loss: weighted_ce
-use_class_weights: true
-epochs: 100
-optimizer: configs/training/optimizer/adamw.yaml
-scheduler: configs/training/scheduler/cosine.yaml

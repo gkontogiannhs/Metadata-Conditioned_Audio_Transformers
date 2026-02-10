@@ -71,11 +71,10 @@ class ASTFiLM(nn.Module):
         rest_dim: int,
         dev_emb_dim: int = 4,
         site_emb_dim: int = 4,
-        conditioned_layers=(-1),
+        conditioned_layers=(10, 11),
         metadata_hidden_dim: int = 64,
         film_hidden_dim: int = 64,
         dropout_p: float = 0.3,
-        num_labels: int = 2,
         debug_film: bool = False,
         condition_on_device: bool = True,
         condition_on_site: bool = True,
@@ -87,6 +86,7 @@ class ASTFiLM(nn.Module):
 
         # Backbone
         self.ast = ASTModel(backbone_only=True, **ast_kwargs)
+        self.num_labels = ast_kwargs["label_dim"]
         D = self.ast.original_embedding_dim
         self.D = D
 
@@ -178,7 +178,7 @@ class ASTFiLM(nn.Module):
             nn.Linear(D, 64),
             nn.ReLU(),
             nn.Dropout(dropout_p),
-            nn.Linear(64, num_labels),
+            nn.Linear(64, self.num_labels),
         )
 
     def _prep_tokens(self, x):
@@ -308,27 +308,6 @@ class ASTFiLM(nn.Module):
                     film_info['post_film'][layer_idx] = normed.clone()
 
             x = x + blk.drop_path(blk.mlp(normed))
-
-        #     # Apply FiLM if this layer is conditioned
-        #     if layer_idx in self.conditioned_set:
-        #         if return_film_info:
-        #             film_info['pre_film'][layer_idx] = x.clone()
-                
-        #         if self.debug_film:
-        #             print(f"[FiLM] Applying to layer {layer_idx}")
-                
-        #         g = gamma[layer_idx].unsqueeze(1)  # (B, 1, D)
-        #         b = beta[layer_idx].unsqueeze(1)   # (B, 1, D)
-        #         x = g * x + b
-                
-        #         if return_film_info:
-        #             film_info['post_film'][layer_idx] = x.clone()
-        #             delta = (film_info['post_film'][layer_idx] - 
-        #                     film_info['pre_film'][layer_idx]).norm(dim=-1).mean().item()
-        #             film_info['modulation_magnitude'][layer_idx] = delta
-
-        #     # FFN block
-        #     x = x + blk.drop_path(blk.mlp(blk.norm2(x)))
 
         x = v.norm(x)
         h_cls = (x[:, 0] + x[:, 1]) / 2.0

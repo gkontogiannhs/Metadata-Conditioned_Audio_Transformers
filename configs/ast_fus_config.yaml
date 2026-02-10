@@ -78,87 +78,32 @@ audio:
       p: .3
 
 models:
-  # simplerespcnn:
-  #   # name: simplerespcnn
-  #   label_dim: 4
-
-  # cnn6:
-  #   name: cnn6
-  #   do_dropout: true
-  #   label_dim: 4
-  #   backbone_only: false
-  #   cpt_path: /home/AIoT04/Dev/pretrained_models/Cnn6_mAP=0.343.pth
-
-  ast:
-    name: ast
-    audioset_pretrain: True
+  ast_meta_proj:
+    name: ast_meta_proj
+    # AST settings
+    audioset_pretrain: true
     input_fdim: 128
     input_tdim: 1024
     model_size: base384
     fstride: 10
     tstride: 10
-    imagenet_pretrain: True
+    imagenet_pretrain: true
     label_dim: 2
-    backbone_only: false
     audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.4
-
-  # ast_proj:
-  #   name: ast_proj
-  #   audioset_pretrain: true
-  #   input_fdim: 128
-  #   input_tdim: 1024
-  #   model_size: base384
-  #   fstride: 10
-  #   tstride: 10
-  #   imagenet_pretrain: true
-  #   label_dim: 2
-  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-  #   dropout: 0.3
-  #   dev_emb_dim: 4
-  #   site_emb_dim: 4
-  #   hidden_dim: 64
-
-  # ast_film:
-  #   name: ast_film
-  #   audioset_pretrain: true
-  #   input_fdim: 128
-  #   input_tdim: 1024
-  #   model_size: base384
-  #   fstride: 10
-  #   tstride: 10
-  #   imagenet_pretrain: true
-  #   label_dim: 2
-  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-  #   dropout: 0.5
-  #   dev_emb_dim: 4
-  #   site_emb_dim: 7
-  #   metadata_hidden_dim: 32
-  #   film_hidden_dim: 32 
-  #   conditioned_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  #   condition_on_device: True
-  #   condition_on_site: True
-  #   condition_on_rest: True
-
-  # ast_filmpp:
-  #   name: ast_filmpp
-  #   audioset_pretrain: true
-  #   input_fdim: 128
-  #   input_tdim: 1024
-  #   model_size: base384
-  #   fstride: 10
-  #   tstride: 10
-  #   imagenet_pretrain: true
-  #   label_dim: 2
-  #   audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
-  #   dropout: 0.5
-  #   dev_emb_dim: 4
-  #   site_emb_dim: 7
-  #   metadata_hidden_dim: 16
-  #   film_hidden_dim: 16
-  #   conditioned_layers: [12]
-  #   D_dev: 32
-  #   D_site: 32
+    
+    # Metadata projection settings
+    dev_emb_dim: 8
+    site_emb_dim: 14
+    hidden_dim: 32
+    dropout_p: 0.4
+    init_gate: 0.5
+    
+    # Ablation flags
+    use_device: true
+    use_site: true
+    use_continuous: true
+    use_missing_flags: false
 
 training:
   # model_name: ast
@@ -176,8 +121,8 @@ training:
   # AST Freezing
   freeze:
     strategy: trainable_blocks  # none, all, until_block, trainable_blocks
-    trainable_blocks: 4         # Number of blocks to keep trainable (from end)
-    until_block: 7            # Alternative: freeze blocks 0-9
+    trainable_blocks: 8        # Number of blocks to keep trainable (from end)
+    until_block:            # Alternative: freeze blocks 0-9
 
 
   # Loss-specific parameters (for hierarchical/composite)
@@ -186,8 +131,8 @@ training:
   over_pred_cost: 0.3
 
   hardware:
-    visible_gpus: "0, 1, 2, 3, 4, 5, 6, 7, 8, 9"   # which GPUs to expose
-    device_id: 0          # which GPU among visible ones to use
+    visible_gpus: "0, 1, 2, 3, 4, 5, 6"   # which GPUs to expose
+    device_id: 3          # which GPU among visible ones to use
     use_dataparallel: false    # enable/disable DataParallel
 
   optimizer:
