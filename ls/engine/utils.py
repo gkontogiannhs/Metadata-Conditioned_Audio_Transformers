@@ -143,9 +143,6 @@ def build_criterion(cfg, device=None):
     
     print(f"[Loss] Building criterion: type={loss_cfg}, multi_label={multi_label}")
     
-    # ============================================================
-    # MULTI-LABEL LOSSES
-    # ============================================================
     if multi_label:
         if loss_cfg in ['default', 'bce']:
             print(f"[Loss] Using BCEWithLogitsLoss")
@@ -176,10 +173,6 @@ def build_criterion(cfg, device=None):
         
         else:
             raise ValueError(f"Unknown multi-label loss type: {loss_cfg}")
-    
-    # ============================================================
-    # MULTI-CLASS LOSSES
-    # ============================================================
     else:
         if loss_cfg in ['default', 'ce']:
             print(f"[Loss] Using CrossEntropyLoss")

@@ -56,9 +56,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     Returns:
         Tuple[model, criterion]: Trained model and loss function
     """
-    # ============================================================
-    # HARDWARE SETUP
-    # ============================================================
     hw_cfg = cfg.hardware
     if hasattr(hw_cfg, 'visible_gpus'):
         set_visible_gpus(hw_cfg.visible_gpus, verbose=True)
@@ -68,16 +65,10 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     model = model.to(device)
     print(f"[Hardware] Model moved to {device}")
 
-    # ============================================================
-    # LOSS FUNCTION
-    # ============================================================
     print(cfg)
     criterion = build_criterion(cfg, device=device)
     multi_label = True # cfg.dataset.multi_label
 
-    # ============================================================
-    # OPTIMIZER SETUP
-    # ============================================================
     epochs = cfg.epochs
     lr = float(cfg.optimizer.lr)
     initial_wd = float(cfg.optimizer.weight_decay)
@@ -103,22 +94,14 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         """Compute cosine-annealed weight decay."""
         return final_wd + 0.5 * (initial_wd - final_wd) * (1 + math.cos(math.pi * epoch / epochs))
 
-    # ============================================================
-    # TRACKING VARIABLES
-    # ============================================================
     best_metric = -np.inf
     best_state_dict = None
     best_epoch = 0
     best_thresholds = (0.5, 0.5) if multi_label else None  # Only for multi-label
-    # ============================================================
-    # TRAINING LOOP
-    # ============================================================
+
     # model.freeze_backbone(until=10)
     for epoch in range(1, epochs + 1):
         
-        # ----------------------------------------------------------
-        # TRAINING PHASE
-        # ----------------------------------------------------------
         if multi_label:
             train_loss, train_metrics, train_metrics_groups = train_one_epoch(
                 model, train_loader, criterion, optimizer, device, scaler, epoch, multi_label=True
@@ -152,9 +135,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                   f"Acc={train_metrics.get('accuracy', 0):.4f} | "
                   f"MacroF1={train_metrics.get('macro_f1', 0):.4f}")
 
-        # ----------------------------------------------------------
-        # VALIDATION PHASE
-        # ----------------------------------------------------------
         if val_loader:
             if multi_label:
                 val_loss, val_metrics, val_metrics_groups = evaluate(
@@ -198,9 +178,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                       f"Acc={val_metrics.get('accuracy', 0):.4f} | "
                       f"MacroF1={val_metrics.get('macro_f1', 0):.4f}")
 
-            # ----------------------------------------------------------
-            # SAVE BEST MODEL
-            # ----------------------------------------------------------
             if current_metric > best_metric:
                 best_metric = current_metric
                 best_state_dict = {k: v.cpu().clone() for k, v in model.state_dict().items()}
@@ -242,9 +219,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                 metric_name = "ICBHI" if multi_label else "F1"
                 print(f"  → New best model saved! ({metric_name}={current_metric*100:.2f}%)")
 
-        # ----------------------------------------------------------
-        # SCHEDULER STEP
-        # ----------------------------------------------------------
         if scheduler:
             if cfg.scheduler.type == "reduce_on_plateau" and val_loader:
                 metric_name = getattr(cfg.scheduler, "reduce_metric", "icbhi_score" if multi_label else "macro_f1")
@@ -256,18 +230,12 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
             current_lr = optimizer.param_groups[0]["lr"]
             mlflow.log_metric("lr", current_lr, step=epoch)
 
-        # ----------------------------------------------------------
-        # COSINE WEIGHT DECAY
-        # ----------------------------------------------------------
         if use_cosine_wd:
             new_wd = _get_cosine_weight_decay(epoch)
             for g in optimizer.param_groups:
                 g["weight_decay"] = new_wd
             mlflow.log_metric("weight_decay", new_wd, step=epoch)
 
-    # ============================================================
-    # LOAD BEST MODEL
-    # ============================================================
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
         metric_name = "ICBHI" if multi_label else "F1"
@@ -281,9 +249,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         best_state_dict = model.state_dict()
         best_thresholds = (0.5, 0.5) if multi_label else None
 
-    # ============================================================
-    # FINAL TEST EVALUATION
-    # ============================================================
     if test_loader:
         print(f"\n{'='*70}")
         print(f"FINAL TEST EVALUATION")
@@ -341,9 +306,6 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
         
         print(f"{'='*70}\n")
 
-        # ----------------------------------------------------------
-        # GROUP-LEVEL SUMMARY
-        # ----------------------------------------------------------
         if test_metrics_groups:
             try:
                 import pandas as pd

@@ -111,10 +111,7 @@ class ICBHIDataset(Dataset):
             
             print(f"{'='*70}\n")
 
-    # ============================================================
     # METADATA LOADING
-    # ============================================================
-
     def _load_cycle_metadata_tsv(self, path: str):
         """Load metadata TSV with missing value handling."""
         
@@ -241,10 +238,7 @@ class ICBHIDataset(Dataset):
         # Otherwise, impute with median
         return float(default_bmi), 1.0
 
-    # ============================================================
     # SPLIT METHODS
-    # ============================================================
-
     def _list_base_filenames(self) -> List[str]:
         items = os.listdir(self.dataset_cfg.data_folder)
         bases_wav = {f.split(".")[0] for f in items if f.endswith(".wav")}
@@ -292,10 +286,7 @@ class ICBHIDataset(Dataset):
         train_size = int(len(shuffled) * ratio)
         return {fn: ("train" if i < train_size else "test") for i, fn in enumerate(shuffled)}
 
-    # ============================================================
     # BUILD CYCLES
-    # ============================================================
-
     def _build_cycles(self, annotation_dict: Dict[str, pd.DataFrame]) -> List[Dict]:
         """Build cycle list with metadata join."""
         
@@ -378,10 +369,7 @@ class ICBHIDataset(Dataset):
         
         return samples
 
-    # ============================================================
     # STATISTICS COMPUTATION
-    # ============================================================
-
     def _compute_continuous_statistics(self) -> Dict[str, Tuple[float, float]]:
         """
         Compute mean and std for continuous features from current samples.
@@ -434,10 +422,7 @@ class ICBHIDataset(Dataset):
 
             return np.array(sample_weights) / np.sum(sample_weights)
 
-    # ============================================================
     # VALIDATION
-    # ============================================================
-
     def _validate_dataset(self):
         """Validate that dataset has no NaN values."""
         
@@ -468,10 +453,7 @@ class ICBHIDataset(Dataset):
         else:
             print(f"Dataset validation passed - no NaN/Inf in continuous features")
 
-    # ============================================================
     # DATASET PROTOCOL
-    # ============================================================
-
     def __getitem__(self, idx):
         """Get a single sample with proper normalization and validation."""
         
