@@ -17,12 +17,10 @@ from ls.config.dataclasses import TrainingConfig
 from ls.engine.scheduler import build_scheduler
 from collections import defaultdict
 from utils import *
+import argparse
 
 
-# ============================================================
 # TRAINING FUNCTIONS
-# ============================================================
-
 def train_one_epoch(model, dataloader, criterion, optimizer, device, scaler, epoch, binary_mode=False):
     """Train model for one epoch with metadata."""
     
@@ -162,10 +160,6 @@ def evaluate(model, dataloader, criterion, device, thresholds=None,
     return avg_loss, metrics, thresholds
 
 
-# ============================================================
-# MAIN TRAINING LOOP
-# ============================================================
-
 def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """Training loop for ASTMetaProj."""
 
@@ -300,7 +294,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                     'gate': model.get_gate_value(),
                 }, ckpt_path)
                 mlflow.log_artifact(ckpt_path, artifact_path="checkpoints")
-                print(f"★ New best (Epoch {epoch}, ICBHI={icbhi*100:.2f}%, Gate={model.get_gate_value():.4f})")
+                print(f"New best (Epoch {epoch}, ICBHI={icbhi*100:.2f}%, Gate={model.get_gate_value():.4f})")
 
         # Scheduler
         if scheduler:
@@ -345,13 +339,16 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     return model, criterion
 
 
-# ============================================================
-# MAIN
-# ============================================================
 
+# Main
 def main():
-    cfg = load_config("configs/ast_fus_config.yaml")
-    mlflow_cfg = load_config("configs/mlflow.yaml")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
+    parser.add_argument("--mlflow-config", type=str, required=True, help="Path to MLflow config YAML file")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    mlflow_cfg = load_config(args.mlflow_config)
 
     MODEL_KEY = "ast_meta_proj"
     print(f"\n{'='*70}")
@@ -364,7 +361,6 @@ def main():
     train_loader, test_loader = build_dataloaders(cfg.dataset, cfg.audio)
 
     # Build model
-    # model_cfg = cfg.models.get(MODEL_KEY, cfg.models.ast_meta_proj)
     model = build_model(cfg.models, MODEL_KEY, num_devices=4, num_sites=7, rest_dim=3)
     
     total_params = sum(p.numel() for p in model.parameters())
