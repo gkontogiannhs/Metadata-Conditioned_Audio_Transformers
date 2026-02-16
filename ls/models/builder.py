@@ -21,6 +21,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
         # Vanilla AST without FiLM
         ast_cfg = cfg[model_key]
         from ls.models.ast import ASTModel
+        print(ast_cfg)
         model = ASTModel(
             label_dim=ast_cfg['label_dim'],  # Binary / multi-label (crackle, wheeze)
             fstride=ast_cfg.get('fstride', 10),
@@ -29,7 +30,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
             input_tdim=ast_cfg.get('input_tdim', 1024),
             imagenet_pretrain=ast_cfg.get('imagenet_pretrain', True),
             audioset_pretrain=ast_cfg.get('audioset_pretrain', True),
-            audioset_ckpt_path=ast_cfg.get('audioset_ckpt_path', ''),
+            audioset_ckpt_path=ast_cfg['audioset_ckpt_path'],
             model_size=ast_cfg.get('model_size', 'base384'),
             verbose=ast_cfg.get('verbose', True),
             dropout_p=ast_cfg.get('dropout', 0.0),
@@ -45,7 +46,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
             "input_tdim": ast_fus_cfg.get('input_tdim', 1024),
             "imagenet_pretrain": ast_fus_cfg.get('imagenet_pretrain', True),
             "audioset_pretrain": ast_fus_cfg.get('audioset_pretrain', True),
-            "audioset_ckpt_path": ast_fus_cfg.get('audioset_ckpt_path'),
+            "audioset_ckpt_path": ast_fus_cfg['audioset_ckpt_path'],
             "model_size": ast_fus_cfg.get('model_size', 'base384'),
             "verbose": ast_fus_cfg.get('verbose', True),
             "dropout_p": ast_fus_cfg.get('dropout', 0.3)
@@ -68,25 +69,6 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
             use_continuous=ast_fus_cfg.get("use_continuous", True),
             use_missing_flags=ast_fus_cfg.get("use_missing_flags", False),
         )
-        def initialize_meta_proj_as_identity(model):
-            """
-            Initialize metadata projection to output near-zero values.
-            This makes h_tilde ≈ h_cls at initialization.
-            """
-            if hasattr(model, 'metadata_proj'):
-                for module in model.metadata_proj.modules():
-                    if isinstance(module, nn.Linear):
-                        nn.init.zeros_(module.weight)
-                        nn.init.zeros_(module.bias)
-                print("[Init] Metadata projection initialized to near-zero")
-            
-            # Also set gate to small value
-            if hasattr(model, 'gate'):
-                with torch.no_grad():
-                    model.gate.fill_(0.1)  # Start with small gate
-                print(f"[Init] Gate initialized to {model.gate.item():.2f}")
-
-        initialize_meta_proj_as_identity(model)
 
     elif model_key == "ast_film":
         # FiLM-conditioned AST
@@ -101,7 +83,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
             "input_tdim": film_cfg.get('input_tdim', 1024),
             "imagenet_pretrain": film_cfg.get('imagenet_pretrain', True),
             "audioset_pretrain": film_cfg.get('audioset_pretrain', True),
-            "audioset_ckpt_path": film_cfg.get('audioset_ckpt_path'),
+            "audioset_ckpt_path": film_cfg['audioset_ckpt_path'],
             "model_size": film_cfg.get('model_size', 'base384'),
             "verbose": film_cfg.get('verbose', True),
             "dropout_p": film_cfg.get('dropout', 0.3)
@@ -139,7 +121,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
             "input_tdim": model_cfg.get("input_tdim", 1024),
             "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
             "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
-            "audioset_ckpt_path": model_cfg.get("audioset_ckpt_path"),
+            "audioset_ckpt_path": model_cfg['audioset_ckpt_path'],
             "model_size": model_cfg.get("model_size", "base384"),
         }
 
@@ -180,7 +162,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
                 "input_tdim": model_cfg.get("input_tdim", 1024),
                 "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
                 "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
-                "audioset_ckpt_path": model_cfg.get("audioset_ckpt_path"),
+                "audioset_ckpt_path": model_cfg['audioset_ckpt_path'],
                 "model_size": model_cfg.get("model_size", "base384"),
             }
 
