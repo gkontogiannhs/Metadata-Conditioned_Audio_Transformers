@@ -4,7 +4,7 @@ from ls.config.dataclasses import ModelsConfig
 import torch
 
 
-def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_kwargs):
+def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
     """
     Build model based on configuration.
     
@@ -12,7 +12,6 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
         cfg: Model configuration
         model_key: "ast" or "ast_film"
         num_devices, num_sites, rest_dim: Metadata dimensions
-        **film_kwargs: Additional FiLM configuration (overrides defaults)
     
     Returns:
         model: Instantiated model
@@ -46,7 +45,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             "input_tdim": ast_fus_cfg.get('input_tdim', 1024),
             "imagenet_pretrain": ast_fus_cfg.get('imagenet_pretrain', True),
             "audioset_pretrain": ast_fus_cfg.get('audioset_pretrain', True),
-            "audioset_ckpt_path": ast_fus_cfg.get('audioset_ckpt_path', '/home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth'),
+            "audioset_ckpt_path": ast_fus_cfg.get('audioset_ckpt_path'),
             "model_size": ast_fus_cfg.get('model_size', 'base384'),
             "verbose": ast_fus_cfg.get('verbose', True),
             "dropout_p": ast_fus_cfg.get('dropout', 0.3)
@@ -102,7 +101,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             "input_tdim": film_cfg.get('input_tdim', 1024),
             "imagenet_pretrain": film_cfg.get('imagenet_pretrain', True),
             "audioset_pretrain": film_cfg.get('audioset_pretrain', True),
-            "audioset_ckpt_path": film_cfg.get('audioset_ckpt_path', '/home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth'),
+            "audioset_ckpt_path": film_cfg.get('audioset_ckpt_path'),
             "model_size": film_cfg.get('model_size', 'base384'),
             "verbose": film_cfg.get('verbose', True),
             "dropout_p": film_cfg.get('dropout', 0.3)
@@ -127,33 +126,6 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             use_improved_continuous_encoder=film_cfg["use_improved_continuous_encoder"],
             layer_specific_encoding=film_cfg["layer_specific_encoding"],
         )
-
-        # ============================================================
-        # FiLM-SPECIFIC INITIALIZATION
-        # ============================================================
-
-        def initialize_film_as_identity(model):
-            """
-            Initialize FiLM generators to output near-zero values.
-            This makes FiLM act as identity (γ=1, β=0) at initialization,
-            preventing random FiLM parameters from corrupting pretrained AST features.
-            """
-            if hasattr(model, 'film_generators'):
-                for name, module in model.film_generators.named_modules():
-                    if isinstance(module, nn.Linear):
-                        nn.init.zeros_(module.weight)
-                        nn.init.zeros_(module.bias)
-                print("[Init] FiLM generators initialized to near-identity (γ≈1, β≈0)")
-            
-            # Also initialize layer-specific encoders if present
-            if hasattr(model, 'layer_encoders') and model.layer_encoders is not None:
-                for name, module in model.layer_encoders.named_modules():
-                    if isinstance(module, nn.Linear):
-                        nn.init.zeros_(module.weight)
-                        nn.init.zeros_(module.bias)
-                print("[Init] Layer-specific encoders initialized to zero")
-
-        # initialize_film_as_identity(model)
     
     elif model_key == "tafilm":
         from ls.models.tafilm import ASTTAFiLM
@@ -167,7 +139,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
             "input_tdim": model_cfg.get("input_tdim", 1024),
             "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
             "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
-            "audioset_ckpt_path": model_cfg.get("audioset_ckpt_path", '/home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth'),
+            "audioset_ckpt_path": model_cfg.get("audioset_ckpt_path"),
             "model_size": model_cfg.get("model_size", "base384"),
         }
 
@@ -197,46 +169,48 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3, **film_k
         return model
     
     elif model_key == "ast_filmpp_soft":
-        # Import FiLM++Soft model
-        from ls.models.ast_filmpp_soft import ASTFiLMPlusPlusSoft
-        model_cfg = cfg[model_key]
-        # AST backbone kwargs
-        ast_kwargs = {
-            "label_dim": model_cfg["label_dim"],
-            "fstride": model_cfg.get("fstride", 10),
-            "tstride": model_cfg.get("tstride", 10),
-            "input_fdim": model_cfg.get("input_fdim", 128),
-            "input_tdim": model_cfg.get("input_tdim", 1024),
-            "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
-            "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
-            "audioset_ckpt_path": model_cfg.get("audioset_ckpt_path", '/home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth'),
-            "model_size": model_cfg.get("model_size", "base384"),
-        }
+            from ls.models.ast_filmpp_soft import ASTFiLMPlusPlusSoft
+            model_cfg = cfg[model_key]
 
-        # Conditioned layers
-        conditioned_layers = model_cfg.get("conditioned_layers", [10, 11])
-        if isinstance(conditioned_layers, list):
-            conditioned_layers = tuple(conditioned_layers)
+            ast_kwargs = {
+                "label_dim": model_cfg["label_dim"],
+                "fstride": model_cfg.get("fstride", 10),
+                "tstride": model_cfg.get("tstride", 10),
+                "input_fdim": model_cfg.get("input_fdim", 128),
+                "input_tdim": model_cfg.get("input_tdim", 1024),
+                "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
+                "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
+                "audioset_ckpt_path": model_cfg.get("audioset_ckpt_path"),
+                "model_size": model_cfg.get("model_size", "base384"),
+            }
 
-        model = ASTFiLMPlusPlusSoft(
-            ast_kwargs=ast_kwargs,
-            num_devices=num_devices,
-            num_sites=num_sites,
-            rest_dim=rest_dim,
-            num_labels=model_cfg["label_dim"],
-            dev_emb_dim=model_cfg.get("dev_emb_dim", 8),
-            site_emb_dim=model_cfg.get("site_emb_dim", 14),
-            conditioned_layers=conditioned_layers,
-            metadata_hidden_dim=model_cfg.get("metadata_hidden_dim", 64),
-            film_hidden_dim=model_cfg.get("film_hidden_dim", 64),
-            dropout_p=model_cfg.get("dropout", 0.3),
-            mask_init_scale=model_cfg.get("mask_init_scale", 2.0),
-            mask_sparsity_lambda=model_cfg.get("mask_sparsity_lambda", 0.01),
-            per_layer_masks=model_cfg.get("per_layer_masks", False),
-            debug_film=model_cfg.get("debug_film", False),
-        )
+            conditioned_layers = model_cfg.get("conditioned_layers", [10, 11])
+            if isinstance(conditioned_layers, list):
+                conditioned_layers = tuple(conditioned_layers)
 
-        return model
+            model = ASTFiLMPlusPlusSoft(
+                ast_kwargs=ast_kwargs,
+                num_devices=num_devices,
+                num_sites=num_sites,
+                rest_dim=rest_dim,
+                num_labels=model_cfg["label_dim"],
+                dev_emb_dim=model_cfg.get("dev_emb_dim", 8),
+                site_emb_dim=model_cfg.get("site_emb_dim", 14),
+                conditioned_layers=conditioned_layers,
+                metadata_hidden_dim=model_cfg.get("metadata_hidden_dim", 64),
+                film_hidden_dim=model_cfg.get("film_hidden_dim", 64),
+                dropout_p=model_cfg.get("dropout", 0.3),
+                # v2 mask parameters
+                mask_init_scale=model_cfg.get("mask_init_scale", 0.5),
+                mask_sparsity_lambda=model_cfg.get("mask_sparsity_lambda", 0.01),
+                mask_coverage_lambda=model_cfg.get("mask_coverage_lambda", 0.005),
+                per_layer_masks=model_cfg.get("per_layer_masks", False),
+                mask_temperature=model_cfg.get("mask_temperature", 1.0),
+                film_init_gain=model_cfg.get("film_init_gain", 0.1),
+                debug_film=model_cfg.get("debug_film", False),
+            )
+
+            return model
     
     else:
         raise ValueError(f"Unknown model_key: {model_key}")

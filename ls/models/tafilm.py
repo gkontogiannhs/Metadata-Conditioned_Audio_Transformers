@@ -50,9 +50,6 @@ class ASTTAFiLM(nn.Module):
     - CLS/distillation tokens (global representation for classification)
     - Patch tokens (local spectro-temporal features)
     
-    This allows metadata to influence global aggregation and local feature
-    extraction differently, providing a more principled Transformer adaptation.
-    
     Args:
         ast_kwargs: Arguments for base AST model
         num_devices: Number of recording devices
@@ -108,10 +105,6 @@ class ASTTAFiLM(nn.Module):
         # Validate: at least one conditioning source
         if not any([condition_on_device, condition_on_site, condition_on_rest]):
             raise ValueError("At least one conditioning source must be enabled!")
-
-        # ============================================================
-        # METADATA EMBEDDINGS
-        # ============================================================
         
         # Device embedding
         if condition_on_device:
@@ -145,10 +138,6 @@ class ASTTAFiLM(nn.Module):
 
         # Total metadata dimension
         meta_dim = dev_emb_dim + site_emb_dim + rest_encoded_dim
-
-        # ============================================================
-        # METADATA ENCODER (shared)
-        # ============================================================
         
         self.metadata_encoder = nn.Sequential(
             nn.LayerNorm(meta_dim),
@@ -158,10 +147,6 @@ class ASTTAFiLM(nn.Module):
             nn.Linear(metadata_hidden_dim, film_hidden_dim),
             nn.GELU(),
         )
-
-        # ============================================================
-        # TOKEN-AWARE FiLM GENERATORS
-        # ============================================================
         
         # Separate generators for CLS tokens and patch tokens
         self.film_generators_cls = nn.ModuleDict({
@@ -173,10 +158,6 @@ class ASTTAFiLM(nn.Module):
             str(l): nn.Linear(film_hidden_dim, 2 * D)
             for l in self.conditioned_layers
         })
-
-        # ============================================================
-        # CLASSIFIER HEAD
-        # ============================================================
         
         self.classifier = nn.Sequential(
             nn.LayerNorm(D),
@@ -187,9 +168,7 @@ class ASTTAFiLM(nn.Module):
             nn.Linear(64, self.num_labels),
         )
 
-        # ============================================================
         # INITIALIZATION: FiLM as identity
-        # ============================================================
         self._init_film_as_identity()
 
         # Print config
