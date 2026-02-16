@@ -1,5 +1,0 @@
-name: cnn6
-do_dropout: true
-label_dim: 4
-backbone_only: false
-cpt_path: /Users/gkont/Documents/Code/pretrained_models/cnn6_mAP=0.431.pth

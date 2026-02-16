@@ -1,167 +1,200 @@
 import torch.nn as nn
 from typing import Optional
 from ls.config.dataclasses import ModelsConfig
+import torch
 
 
-def build_model(
-    cfg: ModelsConfig,
-    model_key: str = "cnn6",
-    *,
-    num_devices: Optional[int] = None,
-    num_sites: Optional[int] = None,
-    rest_dim: Optional[int] = None,
-) -> nn.Module:
+def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
     """
-    Factory function to build a model (CNN6, AST, AST+Metadata variants) from config.
-
-    IMPORTANT:
-      - For FiLM / FiLM++ you must pass num_devices, num_sites, rest_dim
-        (because embeddings depend on vocab sizes).
+    Build model based on configuration.
+    
+    Args:
+        cfg: Model configuration
+        model_key: "ast" or "ast_film"
+        num_devices, num_sites, rest_dim: Metadata dimensions
+    
+    Returns:
+        model: Instantiated model
     """
-    model_cfg = getattr(cfg, model_key, None)
-    print(f"Building model '{model_key}' with config: {model_cfg}")
-
-    if model_cfg is None:
-        raise ValueError(f"Model key '{model_key}' not found in ModelsConfig")
-
-    # ---------- SimpleRespCNN ----------
-    if model_key == "simplerespcnn":
-        from ls.models.baseline import SimpleRespCNN
-        return SimpleRespCNN(n_classes=getattr(model_cfg, "label_dim", 4))
-
-    # ---------- CNN6 ----------
-    if model_key == "cnn6":
-        from ls.models.cnn import CNN6
-        return CNN6(
-            in_channels=1,
-            num_classes=getattr(model_cfg, "label_dim", 4),
-            do_dropout=getattr(model_cfg, "do_dropout", False),
-            cpt_path=getattr(model_cfg, "cpt_path", None),
-        )
-
-    # ---------- AST baseline ----------
+    print(cfg[model_key])
     if model_key == "ast":
+        # Vanilla AST without FiLM
+        ast_cfg = cfg[model_key]
         from ls.models.ast import ASTModel
-        return ASTModel(
-            label_dim=getattr(model_cfg, "label_dim", 4),
-            fstride=getattr(model_cfg, "fstride", 10),
-            tstride=getattr(model_cfg, "tstride", 10),
-            input_fdim=getattr(model_cfg, "input_fdim", 128),
-            input_tdim=getattr(model_cfg, "input_tdim", 1024),
-            imagenet_pretrain=getattr(model_cfg, "imagenet_pretrain", True),
-            audioset_pretrain=getattr(model_cfg, "audioset_pretrain", True),
-            model_size=getattr(model_cfg, "model_size", "base384"),
-            backbone_only=getattr(model_cfg, "backbone_only", False),
-            audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
-            dropout_p=getattr(model_cfg, "dropout", 0.0),
+        print(ast_cfg)
+        model = ASTModel(
+            label_dim=ast_cfg['label_dim'],  # Binary / multi-label (crackle, wheeze)
+            fstride=ast_cfg.get('fstride', 10),
+            tstride=ast_cfg.get('tstride', 10),
+            input_fdim=ast_cfg.get('input_fdim', 128),
+            input_tdim=ast_cfg.get('input_tdim', 1024),
+            imagenet_pretrain=ast_cfg.get('imagenet_pretrain', True),
+            audioset_pretrain=ast_cfg.get('audioset_pretrain', True),
+            audioset_ckpt_path=ast_cfg['audioset_ckpt_path'],
+            model_size=ast_cfg.get('model_size', 'base384'),
+            verbose=ast_cfg.get('verbose', True),
+            dropout_p=ast_cfg.get('dropout', 0.0),
         )
-
-    # ---------- AST + Metadata Projection Fusion ----------
-    if model_key == "ast_proj":
-        # You should have saved this class under ls.models.ast_variants or similar
+    elif model_key == "ast_meta_proj":
         from ls.models.ast_fus import ASTMetaProj
-
-        ast_kwargs = dict(
-            label_dim=getattr(model_cfg, "label_dim", 2),
-            fstride=getattr(model_cfg, "fstride", 10),
-            tstride=getattr(model_cfg, "tstride", 10),
-            input_fdim=getattr(model_cfg, "input_fdim", 128),
-            input_tdim=getattr(model_cfg, "input_tdim", 1024),
-            imagenet_pretrain=getattr(model_cfg, "imagenet_pretrain", True),
-            audioset_pretrain=getattr(model_cfg, "audioset_pretrain", True),
-            model_size=getattr(model_cfg, "model_size", "base384"),
-            audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
-            verbose=getattr(model_cfg, "verbose", False),
-        )
-
-        if num_devices is None or num_sites is None or rest_dim is None:
-            raise ValueError("ast_proj requires num_devices, num_sites, rest_dim")
-
-        return ASTMetaProj(
+        ast_fus_cfg = cfg[model_key]
+        ast_kwargs = {
+            "label_dim": ast_fus_cfg['label_dim'],  # Binary / multi-label (crackle, wheeze)
+            "fstride": ast_fus_cfg.get('fstride', 10),
+            "tstride": ast_fus_cfg.get('tstride', 10),
+            "input_fdim": ast_fus_cfg.get('input_fdim', 128),
+            "input_tdim": ast_fus_cfg.get('input_tdim', 1024),
+            "imagenet_pretrain": ast_fus_cfg.get('imagenet_pretrain', True),
+            "audioset_pretrain": ast_fus_cfg.get('audioset_pretrain', True),
+            "audioset_ckpt_path": ast_fus_cfg['audioset_ckpt_path'],
+            "model_size": ast_fus_cfg.get('model_size', 'base384'),
+            "verbose": ast_fus_cfg.get('verbose', True),
+            "dropout_p": ast_fus_cfg.get('dropout', 0.3)
+        }
+        
+        model = ASTMetaProj(
             ast_kwargs=ast_kwargs,
             num_devices=num_devices,
             num_sites=num_sites,
-            dev_emb_dim=getattr(model_cfg, "dev_emb_dim", 4),
-            site_emb_dim=getattr(model_cfg, "site_emb_dim", 7),
+            dev_emb_dim=ast_fus_cfg.get("dev_emb_dim", 8),
+            site_emb_dim=ast_fus_cfg.get("site_emb_dim", 14),
             rest_dim=rest_dim,
-            hidden_dim=getattr(model_cfg, "hidden_dim", 32),
-            dropout_p=getattr(model_cfg, "dropout", 0.0),
-            num_labels=getattr(model_cfg, "label_dim", 2),
+            hidden_dim=ast_fus_cfg.get("hidden_dim", 64),
+            dropout_p=ast_fus_cfg.get("dropout_p", 0.3),
+            num_labels=ast_fus_cfg.get("label_dim", 2),
+            init_gate=ast_fus_cfg.get("init_gate", 0.5),
+            # Ablation flags
+            use_device=ast_fus_cfg.get("use_device", True),
+            use_site=ast_fus_cfg.get("use_site", True),
+            use_continuous=ast_fus_cfg.get("use_continuous", True),
+            use_missing_flags=ast_fus_cfg.get("use_missing_flags", False),
         )
 
-    # ---------- AST + FiLM (single-stream) ----------
-    if model_key == "ast_film":
+    elif model_key == "ast_film":
+        # FiLM-conditioned AST
+        film_cfg = cfg[model_key]
+        
+        # Prepare AST kwargs
+        ast_kwargs = {
+            "label_dim": film_cfg['label_dim'],  # Binary / multi-label (crackle, wheeze)
+            "fstride": film_cfg.get('fstride', 10),
+            "tstride": film_cfg.get('tstride', 10),
+            "input_fdim": film_cfg.get('input_fdim', 128),
+            "input_tdim": film_cfg.get('input_tdim', 1024),
+            "imagenet_pretrain": film_cfg.get('imagenet_pretrain', True),
+            "audioset_pretrain": film_cfg.get('audioset_pretrain', True),
+            "audioset_ckpt_path": film_cfg['audioset_ckpt_path'],
+            "model_size": film_cfg.get('model_size', 'base384'),
+            "verbose": film_cfg.get('verbose', True),
+            "dropout_p": film_cfg.get('dropout', 0.3)
+        }
+
         from ls.models.ast_film import ASTFiLM
-
-        ast_kwargs = dict(
-            label_dim=getattr(model_cfg, "label_dim", 2),
-            fstride=getattr(model_cfg, "fstride", 10),
-            tstride=getattr(model_cfg, "tstride", 10),
-            input_fdim=getattr(model_cfg, "input_fdim", 128),
-            input_tdim=getattr(model_cfg, "input_tdim", 1024),
-            imagenet_pretrain=getattr(model_cfg, "imagenet_pretrain", True),
-            audioset_pretrain=getattr(model_cfg, "audioset_pretrain", True),
-            model_size=getattr(model_cfg, "model_size", "base384"),
-            audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
-            verbose=getattr(model_cfg, "verbose", False),
-        )
-
-        if num_devices is None or num_sites is None or rest_dim is None:
-            raise ValueError("ast_film requires num_devices, num_sites, rest_dim")
-
-        return ASTFiLM(
+        model = ASTFiLM(
             ast_kwargs=ast_kwargs,
             num_devices=num_devices,
             num_sites=num_sites,
             rest_dim=rest_dim,
-            dev_emb_dim=getattr(model_cfg, "dev_emb_dim", 4),
-            site_emb_dim=getattr(model_cfg, "site_emb_dim", 4),
-            conditioned_layers=tuple(getattr(model_cfg, "conditioned_layers", (10, 11, 12))),
-            metadata_hidden_dim=getattr(model_cfg, "metadata_hidden_dim", 64),
-            film_hidden_dim=getattr(model_cfg, "film_hidden_dim", 64),
-            dropout_p=getattr(model_cfg, "dropout", 0.3),
-            num_labels=getattr(model_cfg, "label_dim", 2),
-            debug_film=getattr(model_cfg, "debug_film", False),
-            condition_on_device=getattr(model_cfg, "condition_on_device", True),
-            condition_on_site=getattr(model_cfg, "condition_on_site", True),
-            condition_on_rest=getattr(model_cfg, "condition_on_rest", True),
+            dev_emb_dim=film_cfg["dev_emb_dim"],
+            site_emb_dim=film_cfg["site_emb_dim"],
+            metadata_hidden_dim=film_cfg["metadata_hidden_dim"],
+            film_hidden_dim=film_cfg["film_hidden_dim"],
+            dropout_p=film_cfg["dropout_p"],
+            debug_film=film_cfg["debug_film"],
+            condition_on_device=film_cfg["use_device"],
+            condition_on_site=film_cfg["use_site"],
+            condition_on_rest=film_cfg["use_continuous"],
+            conditioned_layers=film_cfg["conditioned_layers"],
+            use_improved_continuous_encoder=film_cfg["use_improved_continuous_encoder"],
+            layer_specific_encoding=film_cfg["layer_specific_encoding"],
         )
+    
+    elif model_key == "tafilm":
+        from ls.models.tafilm import ASTTAFiLM
+        model_cfg = cfg[model_key]
+        # AST backbone kwargs
+        ast_kwargs = {
+            "label_dim": model_cfg["label_dim"],
+            "fstride": model_cfg.get("fstride", 10),
+            "tstride": model_cfg.get("tstride", 10),
+            "input_fdim": model_cfg.get("input_fdim", 128),
+            "input_tdim": model_cfg.get("input_tdim", 1024),
+            "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
+            "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
+            "audioset_ckpt_path": model_cfg['audioset_ckpt_path'],
+            "model_size": model_cfg.get("model_size", "base384"),
+        }
 
-    # ---------- AST + FiLM++ (grouped) ----------
-    if model_key == "ast_filmpp":
-        from ls.models.ast_pp import ASTFiLMPlusPlus  # <- put FiLM++ class here
+        # Conditioned layers
+        conditioned_layers = model_cfg.get("conditioned_layers", [10, 11])
+        if isinstance(conditioned_layers, list):
+            conditioned_layers = tuple(conditioned_layers)
 
-        ast_kwargs = dict(
-            label_dim=getattr(model_cfg, "label_dim", 2),
-            fstride=getattr(model_cfg, "fstride", 10),
-            tstride=getattr(model_cfg, "tstride", 10),
-            input_fdim=getattr(model_cfg, "input_fdim", 128),
-            input_tdim=getattr(model_cfg, "input_tdim", 1024),
-            imagenet_pretrain=getattr(model_cfg, "imagenet_pretrain", True),
-            audioset_pretrain=getattr(model_cfg, "audioset_pretrain", True),
-            model_size=getattr(model_cfg, "model_size", "base384"),
-            audioset_ckpt_path=getattr(model_cfg, "audioset_ckpt_path", None),
-            verbose=getattr(model_cfg, "verbose", False),
-        )
-
-        if num_devices is None or num_sites is None or rest_dim is None:
-            raise ValueError("ast_filmpp requires num_devices, num_sites, rest_dim")
-
-        return ASTFiLMPlusPlus(
+        model = ASTTAFiLM(
             ast_kwargs=ast_kwargs,
             num_devices=num_devices,
             num_sites=num_sites,
             rest_dim=rest_dim,
-            D_dev=getattr(model_cfg, "D_dev", 128),
-            D_site=getattr(model_cfg, "D_site", 128),
-            conditioned_layers=tuple(getattr(model_cfg, "conditioned_layers", (10, 11, 12))),
-            dev_emb_dim=getattr(model_cfg, "dev_emb_dim", 4),
-            site_emb_dim=getattr(model_cfg, "site_emb_dim", 4),
-            metadata_hidden_dim=getattr(model_cfg, "metadata_hidden_dim", 64),
-            film_hidden_dim=getattr(model_cfg, "film_hidden_dim", 64),
-            dropout_p=getattr(model_cfg, "dropout", 0.3),
-            num_labels=getattr(model_cfg, "label_dim", 2),
-            debug_film=getattr(model_cfg, "debug_film", False),
+            dev_emb_dim=model_cfg.get("dev_emb_dim", 8),
+            site_emb_dim=model_cfg.get("site_emb_dim", 14),
+            conditioned_layers=conditioned_layers,
+            metadata_hidden_dim=model_cfg.get("metadata_hidden_dim", 64),
+            film_hidden_dim=model_cfg.get("film_hidden_dim", 64),
+            dropout_p=model_cfg.get("dropout", 0.3),
+            debug=model_cfg.get("debug", False),
+            condition_on_device=model_cfg.get("use_device", True),
+            condition_on_site=model_cfg.get("use_site", True),
+            condition_on_rest=model_cfg.get("use_continuous", True),
+            use_improved_continuous_encoder=model_cfg.get("use_improved_continuous_encoder", True),
         )
 
-    raise ValueError(f"Unknown model name: {model_key}")
+        return model
+    
+    elif model_key == "ast_film_soft":
+            from ls.models.ast_filmpp_soft import ASTFiLMPlusPlusSoft
+            model_cfg = cfg[model_key]
+
+            ast_kwargs = {
+                "label_dim": model_cfg["label_dim"],
+                "fstride": model_cfg.get("fstride", 10),
+                "tstride": model_cfg.get("tstride", 10),
+                "input_fdim": model_cfg.get("input_fdim", 128),
+                "input_tdim": model_cfg.get("input_tdim", 1024),
+                "imagenet_pretrain": model_cfg.get("imagenet_pretrain", True),
+                "audioset_pretrain": model_cfg.get("audioset_pretrain", True),
+                "audioset_ckpt_path": model_cfg['audioset_ckpt_path'],
+                "model_size": model_cfg.get("model_size", "base384"),
+            }
+
+            conditioned_layers = model_cfg.get("conditioned_layers", [10, 11])
+            if isinstance(conditioned_layers, list):
+                conditioned_layers = tuple(conditioned_layers)
+
+            model = ASTFiLMPlusPlusSoft(
+                ast_kwargs=ast_kwargs,
+                num_devices=num_devices,
+                num_sites=num_sites,
+                rest_dim=rest_dim,
+                num_labels=model_cfg["label_dim"],
+                dev_emb_dim=model_cfg.get("dev_emb_dim", 8),
+                site_emb_dim=model_cfg.get("site_emb_dim", 14),
+                conditioned_layers=conditioned_layers,
+                metadata_hidden_dim=model_cfg.get("metadata_hidden_dim", 64),
+                film_hidden_dim=model_cfg.get("film_hidden_dim", 64),
+                dropout_p=model_cfg.get("dropout", 0.3),
+                # v2 mask parameters
+                mask_init_scale=model_cfg.get("mask_init_scale", 0.5),
+                mask_sparsity_lambda=model_cfg.get("mask_sparsity_lambda", 0.01),
+                mask_coverage_lambda=model_cfg.get("mask_coverage_lambda", 0.005),
+                per_layer_masks=model_cfg.get("per_layer_masks", False),
+                mask_temperature=model_cfg.get("mask_temperature", 1.0),
+                film_init_gain=model_cfg.get("film_init_gain", 0.1),
+                debug_film=model_cfg.get("debug_film", False),
+            )
+
+            return model
+    
+    else:
+        raise ValueError(f"Unknown model_key: {model_key}")
+    
+    return model

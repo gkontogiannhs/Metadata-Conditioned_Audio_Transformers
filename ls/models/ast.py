@@ -93,7 +93,7 @@ class ASTModel(nn.Module):
             self.mlp_head = None
             if not backbone_only:
                 self.mlp_head = nn.Sequential(
-                    nn.LayerNorm(self.original_embedding_dim), 
+                    nn.LayerNorm(self.original_embedding_dim),
                     self.reg_dropout,
                     nn.Linear(self.original_embedding_dim, 64),  # Hidden layer
                     nn.ReLU(),
@@ -188,8 +188,8 @@ class ASTModel(nn.Module):
                         pretrained_dict[key] = v
                     elif verbose:
                         print(f"Shape mismatch for {key}: model={model_dict[key].shape}, ckpt={v.shape}")
-                print("No mismatch for key:", key) if verbose else None
-                print("No mlp_head weights loaded from AudioSet checkpoint.") if verbose else None
+                # print("No mismatch for key:", key) if verbose else None
+                # print("No mlp_head weights loaded from AudioSet checkpoint.") if verbose else None
             if len(pretrained_dict) > 0:
                 model_dict.update(pretrained_dict)
                 audio_model.load_state_dict(model_dict)

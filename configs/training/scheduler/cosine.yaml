@@ -1,5 +1,0 @@
-use: cosine
-warmup_epochs: 10
-min_lr: 1e-8
-cosine_weight_decay: true
-final_weight_decay: 0.0

@@ -7,3 +7,5 @@ checkpoints/
 *.log
 summaries/
 logs/
+outputs/
+figures/
