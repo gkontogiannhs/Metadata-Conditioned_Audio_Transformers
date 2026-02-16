@@ -2,8 +2,8 @@ seed: 42
 
 dataset:
   name: icbhi
-  data_folder: /home/AIoT04/Datasets/icbhi_dataset
-  cycle_metadata_path: /home/AIoT04/Datasets/icbhi_dataset/icbhi_metadata.csv
+  data_folder: Datasets/icbhi_dataset
+  cycle_metadata_path: Datasets/icbhi_dataset/icbhi_metadata.csv
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
@@ -89,7 +89,7 @@ models:
     tstride: 10
     imagenet_pretrain: true
     label_dim: 1
-    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+    audioset_ckpt_path: pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.4
     
     # FiLM settings
@@ -131,7 +131,6 @@ training:
     strategy: none  # none, all, until_block, trainable_blocks
     trainable_blocks: 8         # Number of blocks to keep trainable (from end)
     until_block:          # Alternative: freeze blocks 0-9
-
 
   # Loss-specific parameters (for hierarchical/composite)
   partial_credit: 0.5
