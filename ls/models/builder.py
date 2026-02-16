@@ -150,7 +150,7 @@ def build_model(cfg, model_key, num_devices=4, num_sites=7, rest_dim=3):
 
         return model
     
-    elif model_key == "ast_filmpp_soft":
+    elif model_key == "ast_film_soft":
             from ls.models.ast_filmpp_soft import ASTFiLMPlusPlusSoft
             model_cfg = cfg[model_key]
 

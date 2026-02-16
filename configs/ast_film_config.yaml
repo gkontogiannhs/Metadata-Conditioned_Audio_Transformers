@@ -2,8 +2,8 @@ seed: 42
 
 dataset:
   name: icbhi
-  data_folder: Datasets/icbhi_dataset
-  cycle_metadata_path: Datasets/icbhi_dataset/icbhi_metadata.csv
+  data_folder: /home/AIoT04/Datasets/icbhi_dataset
+  cycle_metadata_path: /home/AIoT04/Datasets/icbhi_dataset/icbhi_metadata.csv
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0
@@ -89,7 +89,7 @@ models:
     tstride: 10
     imagenet_pretrain: true
     label_dim: 1
-    audioset_ckpt_path: pretrained_models/audioset_10_10_0.4593.pth
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
     dropout: 0.4
     
     # FiLM settings

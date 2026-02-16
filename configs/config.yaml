@@ -2,8 +2,8 @@ seed: 42
 
 dataset:
   name: icbhi
-  data_folder: Datasets/icbhi_dataset
-  cycle_metadata_path: Datasets/icbhi_dataset/icbhi_metadata.csv
+  data_folder: /home/AIoT04/Datasets/icbhi_dataset
+  cycle_metadata_path: /home/AIoT04/Datasets/icbhi_dataset/icbhi_metadata.csv
   class_split: lungsound
   split_strategy: official # official, foldwise, random (patient-wise random)
   test_fold: 0

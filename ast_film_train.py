@@ -15,14 +15,8 @@ from ls.engine.utils import get_device
 from ls.engine.scheduler import build_scheduler
 from collections import defaultdict
 from ls.models.builder import build_model
-
-# Import shared utilities
 from utils import *
-
-
-# ============================================================
-# AST FREEZING (handles both ASTFiLM and ASTMetaProj)
-# ============================================================
+import argparse
 
 def configure_ast_freezing(model, freeze_cfg):
     """Configure AST layer freezing based on config."""
@@ -46,7 +40,6 @@ def configure_ast_freezing(model, freeze_cfg):
         print("[Freeze] Strategy: none - all parameters trainable")
         
     elif strategy == 'all':
-        # For FiLM, we might want to keep FiLM layers trainable
         freeze_film = freeze_cfg.get('freeze_film', False)
         if hasattr(model, 'freeze_backbone'):
             model.freeze_backbone(until=None, freeze_film=freeze_film)
@@ -95,10 +88,6 @@ def configure_ast_freezing(model, freeze_cfg):
         film_trainable = sum(p.numel() for p in model.film_generators.parameters() if p.requires_grad)
         print(f"[Freeze] FiLM generators: {film_params:,} total, {film_trainable:,} trainable")
 
-
-# ============================================================
-# TRAINING FUNCTIONS
-# ============================================================
 
 def train_one_epoch(model, dataloader, criterion, optimizer, device, scaler, epoch, binary_mode=False):
     """Train model for one epoch with metadata (FiLM conditioning)."""
@@ -300,10 +289,6 @@ def analyze_film_parameters(model, dataloader, device, num_batches=10):
     return stats
 
 
-# ============================================================
-# MAIN TRAINING LOOP
-# ============================================================
-
 def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold_idx=None):
     """Training loop for ASTFiLM."""
 
@@ -438,7 +423,7 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
                     'conditioned_layers': list(model.conditioned_layers),
                 }, ckpt_path)
                 mlflow.log_artifact(ckpt_path, artifact_path="checkpoints")
-                print(f"★ New best (Epoch {epoch}, ICBHI={icbhi*100:.2f}%)")
+                print(f"New best (Epoch {epoch}, ICBHI={icbhi*100:.2f}%)")
 
         # Scheduler
         if scheduler:
@@ -503,13 +488,14 @@ def train_loop(cfg, model, train_loader, val_loader=None, test_loader=None, fold
     return model, criterion
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 def main():
-    cfg = load_config("configs/ast_film_config.yaml")
-    mlflow_cfg = load_config("configs/mlflow.yaml")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=True, help="Path to config YAML file")
+    parser.add_argument("--mlflow-config", type=str, required=True, help="Path to MLflow config YAML file")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    mlflow_cfg = load_config(args.mlflow_config)
 
     MODEL_KEY = "ast_film"
     print(f"\n{'='*70}")
