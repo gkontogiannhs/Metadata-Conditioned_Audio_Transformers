@@ -326,10 +326,6 @@ def build_train_val_kfold(
     return folds, test_loader
 
 
-# ============================================================
-# HELPER: COMPUTE SAMPLE WEIGHTS FOR A FOLD
-# ============================================================
-
 def compute_sample_weights(samples, multi_label=True, normal_weight=0.3):
     """
     Helper function to compute sample weights.
@@ -415,10 +411,6 @@ def compute_fold_sample_weights(samples: List[dict], multi_label: bool, normal_w
         
         return sample_weights / sample_weights.sum()
 
-
-# ============================================================
-# STATISTICS COMPUTATION (unchanged, for reference)
-# ============================================================
 
 def compute_and_cache_stats(
     dataset: DataLoader, 
