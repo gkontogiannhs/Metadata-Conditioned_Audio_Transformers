@@ -68,7 +68,7 @@ This will install the `ls` package and all dependencies defined in `pyproject.to
 
 ---
 
-## 📁 Data Preparation
+## Data Preparation
 
 ### 1. Download ICBHI Dataset
 
@@ -111,11 +111,33 @@ dataset:
   batch_size: 16
   h: 128
   w: 1024
+audio:
+  # audio basics
+  sample_rate: 16000
+  desired_length: 10.0
+  remove_dc: true
+  normalize: false
+  # padding type: zero, repeat
+  pad_type: repeat
+  # fade settings
+  use_fade: true
+  fade_samples_ratio: 64
+  # features
+  n_mels: 128
+  frame_length: 40
+  frame_shift: 10
+  low_freq: 100
+  high_freq: 8000
+  window_type: hanning
+  use_energy: false
+  dither: 0.0
+  mel_norm: mit 
 ```
-
 ---
 
-## Configuration
+## Training
+
+### Configuration
 
 All hyperparameters are defined in YAML config files. Key settings:
 
@@ -143,10 +165,6 @@ training:
   weight_decay: 0.01
   sensitivity_bias: 1.5
 ```
-
----
-
-## Training
 
 ### Baseline AST (no metadata)
 
