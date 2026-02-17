@@ -1,0 +1,92 @@
+seed: 42
+
+dataset:
+  name: icbhi
+  data_folder: /home/AIoT04/Datasets/icbhi_dataset
+  cycle_metadata_path: /home/AIoT04/Datasets/icbhi_dataset/icbhi_metadata.csv
+  class_split: lungsound
+  split_strategy: official # official, foldwise, random (patient-wise random)
+  test_fold: 0
+  multi_label: false
+  n_cls: 4
+  weighted_sampler: false
+  batch_size: 16
+  num_workers: 0
+  h: 128
+  w: 1024
+
+audio:
+  # audio basics
+  sample_rate: 16000
+  desired_length: 10.0
+  remove_dc: true
+  normalize: false
+  # padding type: zero, repeat
+  pad_type: repeat
+  # fade settings
+  use_fade: true
+  fade_samples_ratio: 64
+  # features
+  n_mels: 128
+  frame_length: 40
+  frame_shift: 10
+  low_freq: 100
+  high_freq: 8000
+  window_type: hanning
+  use_energy: false
+  dither: 0.0
+  mel_norm: mit # hf, mit, None
+  resz: 1.0
+
+models:
+  ast:
+    name: ast
+    # AST settings
+    audioset_pretrain: true
+    input_fdim: 128
+    input_tdim: 1024
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    imagenet_pretrain: true
+    label_dim: 2
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+    dropout: 0.4
+
+  ast_film_soft:
+    name: ast_film_soft
+    # AST settings
+    audioset_pretrain: true
+    input_fdim: 128
+    input_tdim: 1024
+    model_size: base384
+    fstride: 10
+    tstride: 10
+    imagenet_pretrain: true
+    label_dim: 2
+    audioset_ckpt_path: /home/AIoT04/Dev/pretrained_models/audioset_10_10_0.4593.pth
+    dropout: 0.4
+    
+    # FiLM++ settings
+    dev_emb_dim: 8
+    site_emb_dim: 14
+    metadata_hidden_dim: 64
+    film_hidden_dim: 64
+    
+    # Soft mask settings
+    mask_init_scale: 0.5
+    mask_sparsity_lambda: 0.01    # Regularization for mask overlap
+    mask_coverage_lambda: 0.005   # Regularization for dimension coverage
+    per_layer_masks: false
+    mask_temperature: 1.0         # Initial temperature (annealed during training)
+    mask_temperature_end: 0.2     # Final temperature after annealing
+    mask_temperature_warmup: 5    # Epochs to keep temperature high
+    mask_lr_multiplier: 10.0      # LR multiplier for mask parameters
+    
+    # Generator init
+    film_init_gain: 0.1
+    
+    # Conditioned layers
+    conditioned_layers: [10, 11]
+    
+    debug_film: false

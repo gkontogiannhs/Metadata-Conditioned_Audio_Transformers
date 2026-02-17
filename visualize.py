@@ -500,24 +500,29 @@ def plot_figure3_film_params(film_params, save_path='figures/fig_film_params.pdf
 
 
 def load_model_from_checkpoint(checkpoint_path, model_class, cfg, device):
-    """Load model from checkpoint with key remapping."""
+    """Load model from checkpoint with automatic key remapping."""
     model = build_model(cfg.models, model_class)
 
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
     state_dict = ckpt['model_state_dict']
 
+    # Remap keys
     fixed = {}
     for k, v in state_dict.items():
-        fixed[k.replace("ast.mlp_head.", "classifier.")] = v
+        new_key = k
+        new_key = new_key.replace("ast.mlp_head.", "classifier.")
+        # Checkpoint has "v.blocks..." but model expects "ast.v.blocks..."
+        if new_key.startswith("v."):
+            new_key = "ast." + new_key
+        fixed[new_key] = v
 
-    model.load_state_dict(fixed)
+    model.load_state_dict(fixed, strict=False)
     model = model.to(device)
     model.eval()
 
     print(f"Loaded {model_class} from {checkpoint_path}")
     print(f"  Epoch: {ckpt.get('epoch', 'N/A')}, ICBHI: {ckpt.get('icbhi_score', 'N/A')}")
     return model
-
 
 def main():
     parser = argparse.ArgumentParser(description='Generate figures from trained models')
@@ -539,7 +544,7 @@ def main():
 
     print("\nLoading models...")
     baseline_model = load_model_from_checkpoint(args.baseline_ckpt, 'ast', cfg, device)
-    softfilm_model = load_model_from_checkpoint(args.softfilm_ckpt, 'ast_filmpp_soft', cfg, device)
+    softfilm_model = load_model_from_checkpoint(args.softfilm_ckpt, 'ast_film_soft', cfg, device)
 
     # Figure 1: Mask Analysis
     print(f"\n{'='*50}\nFigure 1: Mask Disentanglement\n{'='*50}")
