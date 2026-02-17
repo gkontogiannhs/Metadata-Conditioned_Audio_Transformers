@@ -20,9 +20,9 @@
 
 ## Highlights
 
-<p align="center">
+<!-- <p align="center">
   <img src="figures/architecture.png" alt="Architecture" width="80%">
-</p>
+</p> -->
 
 **Family of metadata-conditioning mechanisms** for the Audio Spectrogram Transformer (AST), progressing from gated residual fusion to Feature-wise Linear Modulation (FiLM) adapted to the Transformer architecture.
 
