@@ -5,11 +5,16 @@ Generate figures for SoftFiLM:
     3. FiLM parameter distributions (γ, β) by device and site
 
 Usage:
-    python visualize.py \
-        --config configs/best_params_config.yaml \
-        --baseline-ckpt checkpoints/ast_baseline_best.pt \
-        --softfilm-ckpt checkpoints/ast_filmpp_soft_best.pt \
-        --output-dir figures
+    # Single figures
+    python visualize.py --config configs/best_params_config.yaml --mask-analysis --checkpoint checkpoints/softfilm_best.pt
+    python visualize.py --config configs/best_params_config.yaml --tsne --baseline-ckpt checkpoints/ast_best.pt --softfilm-ckpt checkpoints/softfilm_best.pt
+    python visualize.py --config configs/best_params_config.yaml --film-params --checkpoint checkpoints/softfilm_best.pt
+
+    # Multiple at once
+    python visualize.py --config configs/best_params_config.yaml --mask-analysis --film-params --checkpoint checkpoints/softfilm_best.pt
+
+    # All figures
+    python visualize.py --config configs/best_params_config.yaml --all --baseline-ckpt checkpoints/ast_best.pt --softfilm-ckpt checkpoints/softfilm_best.pt
 """
 
 import os
@@ -53,10 +58,7 @@ SITE_COLORS = ['#1abc9c', '#e67e22', '#9b59b6', '#e74c3c', '#3498db', '#2c3e50',
 SITE_NAMES  = ['Tc', 'Al', 'Ar', 'Pl', 'Pr', 'Ll', 'Lr']
 
 
-# =============================================================================
-# DATA EXTRACTION FROM TRAINED MODELS
-# =============================================================================
-
+# Data extraction from trained models
 def extract_softfilm_masks(model):
     """Extract soft masks from trained SoftFiLM model."""
     masks = {}
@@ -524,14 +526,40 @@ def load_model_from_checkpoint(checkpoint_path, model_class, cfg, device):
     print(f"  Epoch: {ckpt.get('epoch', 'N/A')}, ICBHI: {ckpt.get('icbhi_score', 'N/A')}")
     return model
 
+
 def main():
     parser = argparse.ArgumentParser(description='Generate figures from trained models')
     parser.add_argument('--config', type=str, required=True, help='Path to model config YAML')
-    parser.add_argument('--baseline-ckpt', type=str, required=True, help='Path to baseline AST checkpoint')
-    parser.add_argument('--softfilm-ckpt', type=str, required=True, help='Path to SoftFiLM checkpoint')
     parser.add_argument('--output-dir', type=str, default='figures', help='Output directory')
     parser.add_argument('--num-batches', type=int, default=None, help='Limit batches (for testing)')
+
+    # Figure selection
+    parser.add_argument('--mask-analysis', action='store_true', help='Generate mask disentanglement figure')
+    parser.add_argument('--tsne', action='store_true', help='Generate t-SNE comparison figure')
+    parser.add_argument('--film-params', action='store_true', help='Generate FiLM parameter distribution figure')
+    parser.add_argument('--all', action='store_true', help='Generate all figures')
+
+    # Checkpoints
+    parser.add_argument('--checkpoint', type=str, default=None, help='SoftFiLM checkpoint (for --mask-analysis, --film-params)')
+    parser.add_argument('--baseline-ckpt', type=str, default=None, help='Baseline AST checkpoint (for --tsne)')
+    parser.add_argument('--softfilm-ckpt', type=str, default=None, help='SoftFiLM checkpoint (for --tsne)')
+
     args = parser.parse_args()
+
+    # Default to --all if no figure selected
+    if not (args.mask_analysis or args.tsne or args.film_params):
+        args.all = True
+
+    # Validate checkpoint args
+    if (args.mask_analysis or args.film_params or args.all) and not args.checkpoint and not args.softfilm_ckpt:
+        parser.error("--checkpoint (or --softfilm-ckpt) is required for --mask-analysis / --film-params")
+    if (args.tsne or args.all) and not args.baseline_ckpt:
+        parser.error("--baseline-ckpt is required for --tsne")
+    if (args.tsne or args.all) and not args.softfilm_ckpt and not args.checkpoint:
+        parser.error("--softfilm-ckpt (or --checkpoint) is required for --tsne")
+
+    # Resolve: --checkpoint is shorthand for --softfilm-ckpt
+    softfilm_ckpt = args.softfilm_ckpt or args.checkpoint
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -539,29 +567,52 @@ def main():
     set_seed(cfg.seed)
     device = get_device(device_id=0, verbose=True)
 
-    print("\nLoading data...")
-    train_loader, test_loader = build_dataloaders(cfg.dataset, cfg.audio)
+    # Lazy-load resources only when needed
+    test_loader = None
+    softfilm_model = None
+    baseline_model = None
 
-    print("\nLoading models...")
-    baseline_model = load_model_from_checkpoint(args.baseline_ckpt, 'ast', cfg, device)
-    softfilm_model = load_model_from_checkpoint(args.softfilm_ckpt, 'ast_film_soft', cfg, device)
+    def get_test_loader():
+        nonlocal test_loader
+        if test_loader is None:
+            print("\nLoading data...")
+            _, test_loader = build_dataloaders(cfg.dataset, cfg.audio)
+        return test_loader
+
+    def get_softfilm_model():
+        nonlocal softfilm_model
+        if softfilm_model is None:
+            print("\nLoading SoftFiLM model...")
+            softfilm_model = load_model_from_checkpoint(softfilm_ckpt, 'ast_film_soft', cfg, device)
+        return softfilm_model
+
+    def get_baseline_model():
+        nonlocal baseline_model
+        if baseline_model is None:
+            print("\nLoading baseline model...")
+            baseline_model = load_model_from_checkpoint(args.baseline_ckpt, 'ast', cfg, device)
+        return baseline_model
 
     # Figure 1: Mask Analysis
-    print(f"\n{'='*50}\nFigure 1: Mask Disentanglement\n{'='*50}")
-    plot_figure1_masks(softfilm_model, save_path=os.path.join(args.output_dir, 'fig_mask_disentanglement.pdf'))
+    if args.mask_analysis or args.all:
+        print(f"\n{'='*50}\nFigure 1: Mask Disentanglement\n{'='*50}")
+        plot_figure1_masks(get_softfilm_model(), save_path=os.path.join(args.output_dir, 'fig_mask_disentanglement.pdf'))
 
     # Figure 2: t-SNE
-    print(f"\n{'='*50}\nFigure 2: t-SNE Comparison\n{'='*50}")
-    baseline_data = extract_features(baseline_model, test_loader, device, num_batches=args.num_batches)
-    softfilm_data = extract_features(softfilm_model, test_loader, device, num_batches=args.num_batches)
-    plot_figure2_tsne(baseline_data, softfilm_data, save_path=os.path.join(args.output_dir, 'fig_tsne_comparison.pdf'))
+    if args.tsne or args.all:
+        print(f"\n{'='*50}\nFigure 2: t-SNE Comparison\n{'='*50}")
+        loader = get_test_loader()
+        baseline_data = extract_features(get_baseline_model(), loader, device, num_batches=args.num_batches)
+        softfilm_data = extract_features(get_softfilm_model(), loader, device, num_batches=args.num_batches)
+        plot_figure2_tsne(baseline_data, softfilm_data, save_path=os.path.join(args.output_dir, 'fig_tsne_comparison.pdf'))
 
     # Figure 3: FiLM Parameters
-    print(f"\n{'='*50}\nFigure 3: FiLM Parameters\n{'='*50}")
-    film_params = collect_film_parameters(softfilm_model, test_loader, device, num_batches=args.num_batches)
-    plot_figure3_film_params(film_params, save_path=os.path.join(args.output_dir, 'fig_film_params.pdf'))
+    if args.film_params or args.all:
+        print(f"\n{'='*50}\nFigure 3: FiLM Parameters\n{'='*50}")
+        film_params = collect_film_parameters(get_softfilm_model(), get_test_loader(), device, num_batches=args.num_batches)
+        plot_figure3_film_params(film_params, save_path=os.path.join(args.output_dir, 'fig_film_params.pdf'))
 
-    print(f"\n{'='*50}\nAll figures saved to {args.output_dir}/\n{'='*50}")
+    print(f"\n{'='*50}\nDone! Figures saved to {args.output_dir}/\n{'='*50}")
 
 
 if __name__ == '__main__':
