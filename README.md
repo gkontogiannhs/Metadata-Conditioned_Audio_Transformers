@@ -1,12 +1,5 @@
 # Metadata-Conditioned Audio Transformers for Adaptive Respiratory Sound Classification
 
-<!-- <p align="center">
-  <a href="#"><img src="https://img.shields.io/badge/EUSIPCO-2026-blue.svg" alt="EUSIPCO 2026"></a>
-  <a href="#"><img src="https://img.shields.io/badge/arXiv-coming%20soon-b31b1b.svg" alt="arXiv"></a>
-  <a href="#citation"><img src="https://img.shields.io/badge/BibTeX-Citation-green.svg" alt="BibTeX"></a>
-  <a href="https://github.com/gkontogiannhs/Metadata-Conditioned_Audio_Transformers"><img src="https://img.shields.io/badge/GitHub-Repository-black.svg" alt="GitHub"></a>
-</p> -->
-
 <p align="center">
   <b>Official Implementation</b> of <i>"Metadata-Conditioned Audio Transformers for Adaptive Respiratory Sound Classification"</i>
   <br>
@@ -25,21 +18,26 @@
 
 ---
 
-## 🎯 Highlights
+## Highlights
 
-- **Family of metadata-conditioning mechanisms** for the Audio Spectrogram Transformer (AST), progressing from gated residual fusion to Feature-wise Linear Modulation (FiLM) adapted to the Transformer architecture.
+<p align="center">
+  <img src="figures/architecture.png" alt="Architecture" width="80%">
+</p>
 
-- **Two novel conditioning variants**:
-  - **Token-Aware FiLM (TAFiLM)**: Applies distinct modulation to classification and patch tokens
-  - **Soft-Factorized FiLM (SoftFiLM)**: Learns soft masks to align metadata factors (device, site, demographics) with disentangled feature subspaces
+**Family of metadata-conditioning mechanisms** for the Audio Spectrogram Transformer (AST), progressing from gated residual fusion to Feature-wise Linear Modulation (FiLM) adapted to the Transformer architecture.
+
+Our proposed methods condition the Audio Spectrogram Transformer on recording metadata (device, auscultation site, patient demographics) through:
+
+1. **Gated Residual Fusion (GRF)**: Projects metadata embeddings and adds to audio features with learnable gate
+2. **FiLM**: Generates layer-wise scale (γ) and shift (β) parameters from metadata
+3. **Token-Aware FiLM (TAFiLM)**: Applies distinct modulation to classification and patch tokens
+4. **Soft-Factorized FiLM (SoftFiLM)**: Learns soft masks to align metadata factors (device, site, demographics) with disentangled feature subspaces
 
 - **State-of-the-art on 2-class ICBHI** (72.40%) and **competitive performance on 4-class** (64.11%, +3.94% over baseline)
 
 - **Interpretable disentanglement**: Learned soft masks partition the feature space with <3.2% pairwise overlap (vs. 33% expected by chance)
 
----
-
-## 📊 Results
+## Results
 
 Comparison with state-of-the-art methods on the ICBHI lung sound classification task using the official 60-40% train-test split.
 
@@ -47,53 +45,14 @@ Comparison with state-of-the-art methods on the ICBHI lung sound classification 
   <img src="figs/icbhi_sota_comparison.png" alt="SOTA Comparison" width="100%">
 </p>
 
-### 4-Class Evaluation
-
-| Method | Backbone | Meta | $S_p$ (%) | $S_e$ (%) | Score (%) |
-|--------|----------|:----:|-----------|-----------|-----------|
-| Dong *et al.* (multi-view) | AST+Time-Domain | ✗ | **85.99** | 49.11 | 67.55* |
-| MVST | AST | ✗ | 81.99 | 51.10 | 66.55 |
-| Dong *et al.* (AFF+DDL) | AST | ✗ | 85.13 | 45.94 | 65.53 |
-| **GRF-AST [ours]** | AST | ✓ | 74.47±1.10 | 47.91±0.85 | 61.19±0.90 |
-| **FiLM-AST [ours]** | AST | ✓ | 77.26±1.25 | 47.49±0.95 | 62.37±1.05 |
-| **TAFiLM-AST [ours]** | AST | ✓ | 78.84±1.30 | 48.20±1.10 | 63.52±1.20 |
-| **SoftFiLM-AST [ours]** | AST | ✓ | 78.92±1.40 | **49.30±1.25** | **64.11±1.15** |
-
-### 2-Class Evaluation (Normal vs. Abnormal)
-
-| Method | Backbone | Meta | $S_p$ (%) | $S_e$ (%) | Score (%) |
-|--------|----------|:----:|-----------|-----------|-----------|
-| Fraihi *et al.* (Patch-Mix CL + FBS) | AST | ✓ | 75.17 | 65.0 | 70.08* |
-| SG-SCL | AST | ✓ | 79.87 | 57.97 | 68.93 |
-| Bae *et al.* (Patch-Mix CL) | AST | ✗ | 81.66 | 55.77 | 68.71 |
-| **GRF-AST [ours]** | AST | ✓ | 79.10±1.20 | 61.25±0.90 | 70.17±0.74 |
-| **FiLM-AST [ours]** | AST | ✓ | 75.49±1.10 | **67.45±1.30** | 71.47±1.00 |
-| **TAFiLM-AST [ours]** | AST | ✓ | 77.80±1.35 | 66.40±1.25 | 71.10±0.95 |
-| **SoftFiLM-AST [ours]** | AST | ✓ | 77.20±1.40 | 67.60±1.15 | **72.40±0.80** 🏆 |
-
-> *\* denotes previous state-of-the-art*  
-> Score = ($S_p$ + $S_e$) / 2
-
 ---
 
-## 🏗️ Architecture
-
-<p align="center">
-  <img src="figures/architecture.png" alt="Architecture" width="80%">
-</p>
-
-Our proposed methods condition the Audio Spectrogram Transformer on recording metadata (device, auscultation site, patient demographics) through:
-
-1. **Gated Residual Fusion (GRF)**: Projects metadata embeddings and adds to audio features with learnable gate
-2. **FiLM**: Generates layer-wise scale (γ) and shift (β) parameters from metadata
-3. **TAFiLM**: Separate FiLM parameters for CLS token vs. patch tokens
-4. **SoftFiLM**: Learns soft masks to partition features into factor-aligned subspaces
-
----
-
-## 🛠️ Requirements
-
+## Installation
 ```bash
+# Clone the repository
+git clone https://github.com/gkontogiannhs/Metadata-Conditioned_Audio_Transformers.git
+cd Metadata-Conditioned_Audio_Transformers
+
 # Create conda environment
 conda create -n icbhi-ast python=3.10
 conda activate icbhi-ast
@@ -101,23 +60,11 @@ conda activate icbhi-ast
 # Install PyTorch (adjust for your CUDA version)
 pip install torch torchvision torchaudio
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the package
+pip install -e .
 ```
 
-### Dependencies
-
-- Python >= 3.10
-- PyTorch >= 2.0
-- torchaudio >= 2.0
-- transformers
-- timm
-- librosa
-- scikit-learn
-- mlflow
-- omegaconf
-- pandas
-- numpy
+This will install the `ls` package and all dependencies defined in `pyproject.toml`.
 
 ---
 
@@ -168,7 +115,38 @@ dataset:
 
 ---
 
-## 🚀 Training
+## Configuration
+
+All hyperparameters are defined in YAML config files. Key settings:
+
+```yaml
+# Model configuration
+models:
+  ast_softfilm:
+    label_dim: 2
+    input_fdim: 128
+    input_tdim: 1024
+    dev_embed_dim: 8        # Device embedding dimension
+    site_embed_dim: 8       # Site embedding dimension
+    rest_dim: 3             # Continuous features (age, BMI, duration)
+    film_hidden_dim: 64     # FiLM encoder hidden dimension
+    conditioned_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # All layers
+    dropout: 0.4
+    mask_init_scale: 2.0    # Soft mask initialization scale
+    mask_overlap_lambda: 0.01  # Overlap regularization weight
+
+# Training configuration
+training:
+  epochs: 100
+  lr: 3e-5
+  warmup_epochs: 10
+  weight_decay: 0.01
+  sensitivity_bias: 1.5
+```
+
+---
+
+## Training
 
 ### Baseline AST (no metadata)
 
@@ -210,40 +188,7 @@ python ast_film_soft.py \
     --mlflow-config configs/mlflow.yaml
 ```
 
----
-
-## ⚙️ Configuration
-
-All hyperparameters are defined in YAML config files. Key settings:
-
-```yaml
-# Model configuration
-models:
-  ast_softfilm:
-    label_dim: 2
-    input_fdim: 128
-    input_tdim: 1024
-    dev_embed_dim: 8        # Device embedding dimension
-    site_embed_dim: 8       # Site embedding dimension
-    rest_dim: 3             # Continuous features (age, BMI, duration)
-    film_hidden_dim: 64     # FiLM encoder hidden dimension
-    conditioned_layers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]  # All layers
-    dropout: 0.4
-    mask_init_scale: 2.0    # Soft mask initialization scale
-    mask_overlap_lambda: 0.01  # Overlap regularization weight
-
-# Training configuration
-training:
-  epochs: 100
-  lr: 3e-5
-  warmup_epochs: 10
-  weight_decay: 0.01
-  sensitivity_bias: 1.5
-```
-
----
-
-## 📊 Visualization
+## Visualization
 
 Generate analysis figures:
 
@@ -257,26 +202,3 @@ python visualize.py --tsne --baseline-ckpt checkpoints/ast_best.pt --softfilm-ck
 # FiLM parameter distribution
 python visualize.py --film-params --checkpoint checkpoints/softfilm_best.pt
 ```
-
----
-
-## 🔬 Ablation Studies
-
-### Backbone Freezing
-
-| Trainable Blocks | Baseline | GRF | FiLM | TAFiLM | SoftFiLM |
-|------------------|----------|-----|------|--------|----------|
-| n=0 (head only)  | 50.04 | 46.67 | 53.09 | 54.21 | 55.03 |
-| n=4              | 58.00 | 59.34 | 58.73 | 59.48 | 60.05 |
-| n=8              | 59.00 | 60.58 | 60.85 | 61.73 | 62.34 |
-| n=12 (all)       | **60.17** | **61.19** | **62.37** | **63.52** | **64.11** |
-
-### Conditioned Layers (SoftFiLM, n=12)
-
-| Conditioned Layers | Score (%) |
-|--------------------|-----------|
-| Last 2 {10, 11}    | 62.45 |
-| Last 6 {6-11}      | 63.31 |
-| All 12 {0-11}      | **64.11** |
-
----
