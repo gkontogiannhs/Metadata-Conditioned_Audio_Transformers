@@ -188,17 +188,19 @@ python ast_film_soft.py \
     --mlflow-config configs/mlflow.yaml
 ```
 
-## Visualization
+## Evaluation and Visualization
 
-Generate analysis figures:
+Generate performance results and analysis figures:
 
 ```bash
-# Mask analysis for SoftFiLM
-python visualize.py --mask-analysis --checkpoint checkpoints/softfilm_best.pt
+# Single figures
+python visualize.py --config configs/best_params_config.yaml --mask-analysis --checkpoint checkpoints/softfilm_best.pt
+python visualize.py --config configs/best_params_config.yaml --tsne --baseline-ckpt checkpoints/ast_best.pt --softfilm-ckpt checkpoints/softfilm_best.pt
+python visualize.py --config configs/best_params_config.yaml --film-params --checkpoint checkpoints/softfilm_best.pt
 
-# t-SNE comparison
-python visualize.py --tsne --baseline-ckpt checkpoints/ast_best.pt --softfilm-ckpt checkpoints/softfilm_best.pt
+# Multiple at once
+python visualize.py --config configs/best_params_config.yaml --mask-analysis --film-params --checkpoint checkpoints/softfilm_best.pt
 
-# FiLM parameter distribution
-python visualize.py --film-params --checkpoint checkpoints/softfilm_best.pt
+# All figures
+python visualize.py --config configs/best_params_config.yaml --all --baseline-ckpt checkpoints/ast_best.pt --softfilm-ckpt checkpoints/softfilm_best.pt
 ```
