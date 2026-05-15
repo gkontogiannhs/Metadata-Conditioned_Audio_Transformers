@@ -3,7 +3,7 @@
 <p align="center">
   <b>Official Implementation</b> of <i>"Metadata-Conditioned Audio Transformers for Adaptive Respiratory Sound Classification"</i>
   <br>
-  Submitted to <b>EUSIPCO 2026</b>
+  Accepted at <b>EUSIPCO 2026</b>
 </p>
 
 <p align="center">
